@@ -28,6 +28,7 @@ app = Flask(__name__)
 
 bot_threads = {}
 user_states = {}
+keypad_amounts = {}
 master_is_running = False
 
 def get_db():
@@ -49,8 +50,11 @@ def init_db():
         log_channel TEXT DEFAULT '',
         force_channel TEXT DEFAULT '',
         support_contact TEXT DEFAULT '@pranavsmm',
-        fampay_endpoint TEXT DEFAULT '',
+        fampay_endpoint TEXT DEFAULT 'https://fampay-flame.vercel.app/api/pay',
         fampay_apikey TEXT DEFAULT '',
+        paytm_active INTEGER DEFAULT 1,
+        fampay_active INTEGER DEFAULT 1,
+        bharatpe_active INTEGER DEFAULT 0,
         status TEXT DEFAULT 'active',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
@@ -62,6 +66,8 @@ def init_db():
         user_id INTEGER,
         username TEXT,
         balance REAL DEFAULT 0.0,
+        total_deposit REAL DEFAULT 0.0,
+        total_spent REAL DEFAULT 0.0,
         banned INTEGER DEFAULT 0,
         UNIQUE(bot_id, user_id)
     )
@@ -75,9 +81,11 @@ def init_db():
         service_name TEXT,
         cost_price REAL DEFAULT 1.0,
         selling_price_per_100 REAL DEFAULT 3.0,
+        min_qty INTEGER DEFAULT 100,
+        max_qty INTEGER DEFAULT 1000000,
         main_api_service_id TEXT DEFAULT '100',
-        description TEXT DEFAULT 'Good Quality Speed Fast',
-        is_published INTEGER DEFAULT 0
+        description TEXT DEFAULT 'QUALITY - GOOD QUALITY\nSPEED - FAST INSTANT\nDATA - PROFILE + 2 POST\nDROP - HIGH DROP POSSIBLE\nREFILL - NO REFILL',
+        is_published INTEGER DEFAULT 1
     )
     """)
     cur.execute("""
@@ -90,7 +98,7 @@ def init_db():
         quantity INTEGER,
         charge REAL,
         api_order_id TEXT,
-        status TEXT DEFAULT 'Processing',
+        status TEXT DEFAULT 'Pending',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
@@ -115,26 +123,56 @@ def seed_default_services(bot_id):
     cur.execute("SELECT COUNT(*) as count FROM bot_services WHERE bot_id=?", (bot_id,))
     if cur.fetchone()["count"] == 0:
         defaults = [
-            ("Instagram", "IG Likes", "IG Like Indian", 1.0, 3.0, "101", "Quality: Good Quality | Speed: Fast"),
-            ("Instagram", "IG Followers", "Cheap Followers", 4.0, 8.0, "102", "Quality: Real Mix | Speed: Superfast"),
-            ("Instagram", "IG Views", "Reel Views Instant", 0.03, 0.5, "103", "Non-Drop Fast High Speed"),
-            ("Facebook", "FB Followers", "FB Page Followers", 15.0, 30.0, "104", "Safe Non Drop High Retention"),
-            ("Facebook", "FB Likes", "FB Post Likes", 5.0, 10.0, "105", "Fast Delivery Good Quality"),
-            ("Telegram", "TG Members", "Telegram Channel Members", 8.0, 15.0, "106", "Real Members 0-1 Hour Start"),
-            ("Telegram", "TG Views", "Telegram Post Views", 0.1, 0.5, "107", "Instant Speed Fast")
+            ("Instagram", "Ig Likes", "Ig Likes ❤️", 1.0, 3.0, 100, 3949494, "101", "QUALITY - GOOD QUALITY\nSPEED - FAST INSTANT\nDROP - ALMOST NON DROP\nREFILL - 365 DAY REFILL"),
+            ("Instagram", "Ig Followers", "Cheap Followers", 4.5, 8.0, 100, 1000000, "102", "QUALITY - GOOD QUALITY\nSPEED - FAST INSTANT\nDATA - PROFILE + 2 POST\nDROP - HIGH DROP POSSIBLE\nREFILL - NO REFILL"),
+            ("Instagram", "Ig Followers", "Ig Followers HQ", 25.0, 35.0, 100, 500000, "103", "QUALITY - HIGH QUALITY\nSPEED - SUPERFAST\nREFILL - LIFETIME GUARANTEE"),
+            ("Instagram", "Reels View's", "Reel Views Instant", 0.03, 0.5, 100, 10000000, "104", "NON DROP FAST HIGH SPEED INSTANT START"),
+            ("Instagram", "Post View's", "Post Impressions & Reach", 0.05, 0.8, 100, 5000000, "105", "INSTANT REAL IMPRESSIONS"),
+            ("Facebook", "Fb Followers", "Fb Page Followers", 15.0, 30.0, 100, 200000, "106", "SAFE NON DROP HIGH RETENTION"),
+            ("Telegram", "Tg Members", "Telegram Channel Members", 8.0, 15.0, 100, 100000, "107", "REAL ACTIVE 0-1 HOUR START")
         ]
         for d in defaults:
             cur.execute("""
-            INSERT INTO bot_services (bot_id, platform, sub_category, service_name, cost_price, selling_price_per_100, main_api_service_id, description, is_published)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
-            """, (bot_id, d[0], d[1], d[2], d[3], d[4], d[5], d[6]))
+            INSERT INTO bot_services (bot_id, platform, sub_category, service_name, cost_price, selling_price_per_100, min_qty, max_qty, main_api_service_id, description, is_published)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+            """, (bot_id, d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8]))
         conn.commit()
     conn.close()
+
+# Keypad Markup Generator for Deposit
+def build_deposit_keypad(current_amount_str):
+    m = types.InlineKeyboardMarkup(row_width=3)
+    display_amt = current_amount_str if current_amount_str else "0"
+    m.add(
+        types.InlineKeyboardButton("1", callback_data="kp_1"),
+        types.InlineKeyboardButton("2", callback_data="kp_2"),
+        types.InlineKeyboardButton("3", callback_data="kp_3")
+    )
+    m.add(
+        types.InlineKeyboardButton("4", callback_data="kp_4"),
+        types.InlineKeyboardButton("5", callback_data="kp_5"),
+        types.InlineKeyboardButton("6", callback_data="kp_6")
+    )
+    m.add(
+        types.InlineKeyboardButton("7", callback_data="kp_7"),
+        types.InlineKeyboardButton("8", callback_data="kp_8"),
+        types.InlineKeyboardButton("9", callback_data="kp_9")
+    )
+    m.add(
+        types.InlineKeyboardButton("0", callback_data="kp_0"),
+        types.InlineKeyboardButton("00", callback_data="kp_00"),
+        types.InlineKeyboardButton("🗑️", callback_data="kp_clear")
+    )
+    m.add(
+        types.InlineKeyboardButton("🛑 CANCEL", callback_data="kp_cancel"),
+        types.InlineKeyboardButton("✅ CONFIRM", callback_data="kp_confirm")
+    )
+    return m, display_amt
 
 @app.route('/api/payment/webhook', methods=['POST'])
 def payment_webhook():
     data = request.json or request.form.to_dict()
-    tx_id = data.get("orderId") or data.get("tx_id")
+    tx_id = data.get("orderId") or data.get("tx_id") or data.get("utr")
     status = data.get("status", "").upper()
     amount = float(data.get("amount", 0.0))
 
@@ -151,8 +189,8 @@ def payment_webhook():
         user_id = tx["user_id"]
         credited_amt = tx["amount"]
 
-        cur.execute("UPDATE bot_clients SET balance = balance + ? WHERE bot_id=? AND user_id=?", 
-                    (credited_amt, bot_id, user_id))
+        cur.execute("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", 
+                    (credited_amt, credited_amt, bot_id, user_id))
         cur.execute("UPDATE transactions SET status='completed' WHERE tx_id=?", (tx_id,))
         conn.commit()
 
@@ -164,9 +202,9 @@ def payment_webhook():
             try:
                 dec_token = cipher_suite.decrypt(b_row["bot_token_enc"].encode()).decode()
                 tb = telebot.TeleBot(dec_token)
-                tb.send_message(user_id, f"Payment Success!\n\nDeposited: Rs {credited_amt:.2f}\nRef ID: {tx_id}\nWallet balance updated automatically!")
+                tb.send_message(user_id, f"✅ Payment Success\n\nAmount: Rs {credited_amt:.2f}\nRef/UTR: {tx_id}\nFunds added to wallet.")
                 if b_row["log_channel"]:
-                    tb.send_message(b_row["log_channel"], f"[DEPOSIT SUCCESS]\nUser: {user_id}\nAmount: Rs {credited_amt}\nRef: {tx_id}")
+                    tb.send_message(b_row["log_channel"], f"🔔 [DEPOSIT SUCCESS]\nUser: {user_id}\nAmount: Rs {credited_amt}\nRef: {tx_id}")
             except Exception:
                 pass
 
@@ -188,62 +226,47 @@ def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
             def get_user_main_menu():
                 m = types.InlineKeyboardMarkup(row_width=2)
                 m.add(
-                    types.InlineKeyboardButton("💳 𝗕𝗮𝗹𝗮𝗻𝗰𝗲", callback_data="u_bal"),
-                    types.InlineKeyboardButton("💰 𝗗𝗲𝗽𝗼𝘀𝗶𝘁", callback_data="u_dep")
+                    types.InlineKeyboardButton("💳 Balance", callback_data="u_bal"),
+                    types.InlineKeyboardButton("💰 Deposit", callback_data="u_dep")
                 )
                 m.add(
-                    types.InlineKeyboardButton("🗓️ 𝗛𝗶𝘀𝘁𝗼𝗿𝘆", callback_data="u_hist"),
-                    types.InlineKeyboardButton("🛒 𝗢𝗿𝗱𝗲𝗿 𝗡𝗼𝘄", callback_data="u_ord")
+                    types.InlineKeyboardButton("🗓️ History", callback_data="u_hist"),
+                    types.InlineKeyboardButton("🛒 Order Now", callback_data="u_ord")
                 )
                 m.add(
-                    types.InlineKeyboardButton("💬 𝗦𝘂𝗽𝗽𝗼𝗿𝘁", callback_data="u_supp"),
-                    types.InlineKeyboardButton("👑 𝗖𝗬𝗢𝗕", callback_data="u_cyob")
+                    types.InlineKeyboardButton("💬 Support", callback_data="u_supp"),
+                    types.InlineKeyboardButton("👑 CYOB", callback_data="u_cyob")
                 )
                 return m
 
             def get_owner_panel():
                 m = types.InlineKeyboardMarkup(row_width=2)
                 m.add(
-                    types.InlineKeyboardButton("𝗦𝗲𝗿𝘃𝗶𝗰𝗲𝘀", callback_data="a_services"),
-                    types.InlineKeyboardButton("𝗣𝗮𝘆𝗺𝗲𝗻𝘁", callback_data="a_payment")
+                    types.InlineKeyboardButton("Services", callback_data="a_services"),
+                    types.InlineKeyboardButton("Payment", callback_data="a_payment")
                 )
                 m.add(
-                    types.InlineKeyboardButton("𝗨𝘀𝗲𝗿𝘀", callback_data="a_users"),
-                    types.InlineKeyboardButton("𝗕𝗿𝗼𝗮𝗱𝗰𝗮𝘀𝘁", callback_data="a_bcast")
+                    types.InlineKeyboardButton("Users", callback_data="a_users"),
+                    types.InlineKeyboardButton("Broadcast", callback_data="a_bcast")
                 )
                 m.add(
-                    types.InlineKeyboardButton("𝗔𝗱𝗱 𝗕𝗮𝗹𝗮𝗻𝗰𝗲", callback_data="a_addbal"),
-                    types.InlineKeyboardButton("𝗗𝗲𝗱𝘂𝗰𝘁 𝗕𝗮𝗹𝗮𝗻𝗰𝗲", callback_data="a_dedbal")
+                    types.InlineKeyboardButton("Add Balance", callback_data="a_addbal"),
+                    types.InlineKeyboardButton("Deduct Balance", callback_data="a_dedbal")
                 )
                 m.add(
-                    types.InlineKeyboardButton("𝗕𝗮𝗻 𝗨𝘀𝗲𝗿", callback_data="a_ban"),
-                    types.InlineKeyboardButton("𝗨𝗻𝗯𝗮𝗻 𝗨𝘀𝗲𝗿", callback_data="a_unban")
+                    types.InlineKeyboardButton("Ban User", callback_data="a_ban"),
+                    types.InlineKeyboardButton("Unban User", callback_data="a_unban")
                 )
                 m.add(
-                    types.InlineKeyboardButton("𝗟𝗼𝗴 𝗖𝗵𝗮𝗻𝗻𝗲𝗹", callback_data="a_logchan"),
-                    types.InlineKeyboardButton("𝗙𝗼𝗿𝗰𝗲 𝗦𝘂𝗯", callback_data="a_forcesub")
+                    types.InlineKeyboardButton("Log Channel", callback_data="a_logchan"),
+                    types.InlineKeyboardButton("Force Sub", callback_data="a_forcesub")
                 )
                 m.add(
-                    types.InlineKeyboardButton("𝗦𝘂𝗽𝗽𝗼𝗿𝘁 𝗖𝗼𝗻𝘁𝗮𝗰𝘁", callback_data="a_suppcontact"),
-                    types.InlineKeyboardButton("𝗧𝘂𝗿𝗻 𝗢𝗳𝗳 𝗣𝗿𝗼 𝗠𝗼𝗱𝗲", callback_data="a_promode")
+                    types.InlineKeyboardButton("Support Contact", callback_data="a_suppcontact"),
+                    types.InlineKeyboardButton("Turn On Pro Mode", callback_data="a_promode")
                 )
-                m.add(types.InlineKeyboardButton("𝗠𝗮𝗶𝗻 𝗠𝗲𝗻𝘂", callback_data="a_back_main"))
+                m.add(types.InlineKeyboardButton("Main Menu", callback_data="a_back_main"))
                 return m
-
-            def is_user_subscribed(uid):
-                conn = get_db()
-                cur = conn.cursor()
-                cur.execute("SELECT force_channel FROM child_bots WHERE bot_id=?", (bot_id,))
-                row = cur.fetchone()
-                conn.close()
-                if not row or not row["force_channel"]:
-                    return True
-                ch = row["force_channel"].strip()
-                try:
-                    res = cbot.get_chat_member(ch, uid)
-                    return res.status in ['member', 'administrator', 'creator']
-                except Exception:
-                    return True
 
             @cbot.message_handler(commands=['start'])
             def c_start(msg):
@@ -257,33 +280,24 @@ def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
                     conn.close()
                     return
 
-                if not is_user_subscribed(uid):
-                    cur.execute("SELECT force_channel FROM child_bots WHERE bot_id=?", (bot_id,))
-                    ch = cur.fetchone()["force_channel"]
-                    conn.close()
-                    m = types.InlineKeyboardMarkup()
-                    m.add(types.InlineKeyboardButton("Join Channel", url=f"https://t.me/{ch.replace('@', '')}"))
-                    m.add(types.InlineKeyboardButton("Check Joined", callback_data="u_check_joined"))
-                    cbot.send_message(msg.chat.id, f"Please join {ch} first to use this bot!", reply_markup=m)
-                    return
-
                 cur.execute("INSERT OR IGNORE INTO bot_clients (bot_id, user_id, username) VALUES (?, ?, ?)",
                             (bot_id, uid, msg.from_user.username or 'User'))
                 conn.commit()
                 conn.close()
 
-                welcome_card = (
-                    "💎*𝗠𝗔𝗜𝗡 𝗠𝗘𝗡𝗨*💎 ~\n\n"
-                    "╭━━━━━━━━━━━━━━━━━━╮\n"
-                    "  ✨ 𝓦𝓔𝓛𝓒𝓞𝓜𝓔  ★ 𝗩𝗜𝗣 ✨\n"
-                    "  ❄️❄️❄️❄️❄️❄️❄️❄️❄️❄️\n"
-                    "  🤍🤍🤍🤍🤍🤍🤍🤍🤍🤍\n"
-                    "  🥶  𝗖𝗵𝗼𝗼𝘀𝗲 𝗔𝗻 𝗢𝗽𝘁𝗶𝗼𝗻 𝗕𝗲𝗹𝗼𝘄 🎀\n"
-                    "  🤍🤍🤍🤍🤍🤍🤍🤍🤍🤍\n"
-                    "  ❄️❄️❄️❄️❄️❄️❄️❄️❄️❄️\n"
-                    "╰━━━━━━━━━━━━━━━━━━╯"
+                welcome_screen = (
+                    "╔═══════════════════════════╗\n"
+                    "   ✨ 𝓦𝓔𝓛𝓒𝓞𝓜𝓔 ✨\n"
+                    "╚═══════════════════════════╝\n\n"
+                    f"❣️ Hey @{msg.from_user.username or 'User'} ❄️\n\n"
+                    "Boost Your Social Presence With Instant Delivery And Automated 24/7 Processing. 🚀\n"
+                    "❄️❄️❄️❄️❄️❄️❄️❄️❄️❄️\n"
+                    "We Have Clone Reseller Program For Business Men & Developers 👑\n\n"
+                    "Press Continue To Open The Menu"
                 )
-                cbot.send_message(msg.chat.id, welcome_card, reply_markup=get_user_main_menu(), parse_mode="Markdown")
+                m = types.InlineKeyboardMarkup()
+                m.add(types.InlineKeyboardButton("▶️ CONTINUE", callback_data="u_continue_main"))
+                cbot.send_message(msg.chat.id, welcome_screen, reply_markup=m)
 
             @cbot.message_handler(commands=['admin'])
             def c_admin(msg):
@@ -291,154 +305,489 @@ def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
                     cbot.reply_to(msg, "Access Denied: You are not the owner of this bot.")
                     return
                 admin_text = (
-                    "╔════════════════════════════╗\n"
-                    "   👑 𝗢𝗪𝗡𝗘𝗥 𝗣𝗔𝗡𝗘𝗟\n"
-                    "╚════════════════════════════╝\n\n"
+                    "👑 Owner Panel\n\n"
                     f"🤖 @{bot_username}\n\n"
-                    "𝗠𝗮𝗻𝗮𝗴𝗲 𝗬𝗼𝘂𝗿 𝗕𝗼𝘁 𝗦𝗲𝘁𝘁𝗶𝗻𝗴𝘀: 𝗦𝗲𝘁 𝗬𝗼𝘂𝗿 𝗢𝘄𝗻 𝗦𝗲𝗿𝘃𝗶𝗰𝗲 𝗣𝗿𝗶𝗰𝗲𝘀, "
-                    "𝗖𝗼𝗻𝗳𝗶𝗴𝘂𝗿𝗲 𝗬𝗼𝘂𝗿 𝗣𝗮𝘆𝗺𝗲𝗻𝘁 𝗚𝗮𝘁𝗲𝘄𝗮𝘆 𝗔𝗣𝗜, 𝗔𝗻𝗱 𝗠𝗮𝗻𝗮𝗴𝗲 𝗬𝗼𝘂𝗿 𝗨𝘀𝗲𝗿𝘀.\n\n"
+                    "Manage Your Bot Settings: Set Your Own Service Prices, Configure Your Payment Gateway API, And Manage Your Users.\n\n"
                     "☆━─━─━─━─━─━─━─━☆"
                 )
-                cbot.send_message(msg.chat.id, admin_text, reply_markup=get_owner_panel(), parse_mode="Markdown")
+                cbot.send_message(msg.chat.id, admin_text, reply_markup=get_owner_panel())
 
             @cbot.callback_query_handler(func=lambda c: True)
             def c_callbacks(call):
                 uid = call.from_user.id
                 cid = call.message.chat.id
+                mid = call.message.message_id
                 data = call.data
 
-                if data == "u_check_joined":
-                    if is_user_subscribed(uid):
-                        cbot.delete_message(cid, call.message.message_id)
-                        cbot.send_message(cid, "Channel verified successfully! Send /start")
-                    else:
-                        cbot.answer_callback_query(call.id, "You have not joined yet!", show_alert=True)
-                    return
-
-                if data == "u_back_main":
-                    welcome_card = (
-                        "💎*𝗠𝗔𝗜𝗡 𝗠𝗘𝗡𝗨*💎 ~\n\n"
-                        "╭━━━━━━━━━━━━━━━━━━╮\n"
-                        "  ✨ 𝓦𝓔𝓛𝓒𝓞𝓜𝓔  ★ 𝗩𝗜𝗣 ✨\n"
+                if data == "u_continue_main" or data == "u_back_main":
+                    menu_text = (
+                        "💎 MAIN MENU 💎 ~\n\n"
+                        "╔══════════════════════╗\n"
+                        "  ✨ 𝓦𝓔𝓛𝓒𝓞𝓜𝓔 ★ VIP ✨\n"
                         "  ❄️❄️❄️❄️❄️❄️❄️❄️❄️❄️\n"
-                        "  🤍🤍🤍🤍🤍🤍🤍🤍🤍🤍\n"
-                        "  🥶  𝗖𝗵𝗼𝗼𝘀𝗲 𝗔𝗻 𝗢𝗽𝘁𝗶𝗼𝗻 𝗕𝗲𝗹𝗼𝘄 🎀\n"
-                        "  🤍🤍🤍🤍🤍🤍🤍🤍🤍🤍\n"
-                        "  ❄️❄️❄️❄️❄️❄️❄️❄️❄️❄️\n"
-                        "╰━━━━━━━━━━━━━━━━━━╯"
+                        "  🥶 Choose An Option Below 🎀\n"
+                        "╚══════════════════════╝"
                     )
-                    cbot.edit_message_text(welcome_card, cid, call.message.message_id, reply_markup=get_user_main_menu(), parse_mode="Markdown")
+                    cbot.edit_message_text(menu_text, cid, mid, reply_markup=get_user_main_menu())
 
                 elif data == "u_bal":
                     conn = get_db()
                     cur = conn.cursor()
-                    cur.execute("SELECT balance FROM bot_clients WHERE bot_id=? AND user_id=?", (bot_id, uid))
+                    cur.execute("SELECT balance, total_deposit, total_spent FROM bot_clients WHERE bot_id=? AND user_id=?", (bot_id, uid))
                     row = cur.fetchone()
                     conn.close()
                     bal = row["balance"] if row else 0.0
+                    tdep = row["total_deposit"] if row else 0.0
+                    tsp = row["total_spent"] if row else 0.0
+
+                    acc_text = (
+                        "🛡️ ACCOUNT INFO  PREMIUM\n\n"
+                        f"💰 Balance - ₹{bal:.2f}\n"
+                        f"🆔 User ID - {uid}\n"
+                        f"👤 User Name - @{call.from_user.username or 'User'}\n"
+                        f"💳 Total Deposit - ₹{tdep:.2f}\n"
+                        f"🛒 Total Spent - ₹{tsp:.2f}\n\n"
+                        "Funds Are Stored Securely And Ready For Automated Orders."
+                    )
                     m = types.InlineKeyboardMarkup(row_width=2)
-                    m.add(types.InlineKeyboardButton("💰 𝗗𝗲𝗽𝗼𝘀𝗶𝘁", callback_data="u_dep"), types.InlineKeyboardButton("🔙 𝗕𝗮𝗰𝗸", callback_data="u_back_main"))
-                    cbot.edit_message_text(f"Account Balance:\n\nUser ID: {uid}\nWallet: Rs {bal:.2f}", cid, call.message.message_id, reply_markup=m)
+                    m.add(types.InlineKeyboardButton("💰 Deposit", callback_data="u_dep"), types.InlineKeyboardButton("🔙 Go Back", callback_data="u_back_main"))
+                    cbot.edit_message_text(acc_text, cid, mid, reply_markup=m)
 
                 elif data == "u_dep":
-                    conn = get_db()
-                    cur = conn.cursor()
-                    cur.execute("SELECT fampay_endpoint, fampay_apikey FROM child_bots WHERE bot_id=?", (bot_id,))
-                    b_set = cur.fetchone()
-                    conn.close()
+                    dep_screen = (
+                        "╭──────────────────────────╮\n"
+                        "  💷 DEPOSIT FUNDS\n"
+                        "╰──────────────────────────╯\n\n"
+                        "Select A Method To Continue"
+                    )
+                    m = types.InlineKeyboardMarkup(row_width=1)
+                    m.add(types.InlineKeyboardButton("UPI", callback_data="u_dep_method_upi"))
+                    m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="u_back_main"))
+                    cbot.edit_message_text(dep_screen, cid, mid, reply_markup=m)
 
-                    if not b_set["fampay_endpoint"] or not b_set["fampay_apikey"]:
-                        m = types.InlineKeyboardMarkup()
-                        m.add(types.InlineKeyboardButton("🔙 𝗕𝗮𝗰𝗸", callback_data="u_back_main"))
-                        cbot.edit_message_text("Deposit Unavailable. Owner has not configured payment gateway yet.", cid, call.message.message_id, reply_markup=m)
+                elif data == "u_dep_method_upi":
+                    keypad_amounts[uid] = ""
+                    kp, disp = build_deposit_keypad("")
+                    kp_screen = (
+                        "╭──────────────────────────╮\n"
+                        "  💶 DEPOSIT 💷\n"
+                        "╰──────────────────────────╯\n"
+                        "  Enter The Amount Below\n\n"
+                        "😊 Minimum ₹1 Max ₹10,000\n\n"
+                        f"💵 Amount : ₹{disp}"
+                    )
+                    cbot.edit_message_text(kp_screen, cid, mid, reply_markup=kp)
+
+                elif data.startswith("kp_"):
+                    act = data.replace("kp_", "")
+                    cur_amt = keypad_amounts.get(uid, "")
+                    if act == "cancel":
+                        keypad_amounts.pop(uid, None)
+                        cbot.edit_message_text("Deposit Cancelled.", cid, mid, reply_markup=get_user_main_menu())
+                        return
+                    elif act == "clear":
+                        cur_amt = cur_amt[:-1] if len(cur_amt) > 1 else ""
+                    elif act in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "00"]:
+                        if len(cur_amt) < 5:
+                            cur_amt += act
+                    elif act == "confirm":
+                        if not cur_amt or int(cur_amt) < 1:
+                            cbot.answer_callback_query(call.id, "Please enter at least ₹1", show_alert=True)
+                            return
+                        amt = float(cur_amt)
+                        keypad_amounts.pop(uid, None)
+
+                        utr_num = f"388{random.randint(100000000, 999999999)}"
+                        conn = get_db()
+                        cur = conn.cursor()
+                        cur.execute("SELECT fampay_endpoint, fampay_apikey FROM child_bots WHERE bot_id=?", (bot_id,))
+                        bset = cur.fetchone()
+                        cur.execute("INSERT INTO transactions (tx_id, bot_id, user_id, amount, status) VALUES (?, ?, ?, ?, ?)",
+                                    (utr_num, bot_id, uid, amt, "pending"))
+                        conn.commit()
+                        conn.close()
+
+                        qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=fam@upi&am={amt}&tr={utr_num}"
+                        qr_cap = (
+                            "╭──────────────────────────╮\n"
+                            "  SCAN & PAY\n"
+                            "╰──────────────────────────╯\n\n"
+                            f"💵 Amount : ₹{amt:.0f}\n"
+                            f"🆔 Utr : {utr_num}\n"
+                            "⏱️ Valid : 15 Min"
+                        )
+                        m = types.InlineKeyboardMarkup(row_width=1)
+                        m.add(types.InlineKeyboardButton("✅ VERIFY PAYMENT", callback_data=f"chk_pay_{utr_num}"))
+                        m.add(types.InlineKeyboardButton("❌ CANCEL", callback_data=f"cnl_pay_{utr_num}"))
+                        cbot.delete_message(cid, mid)
+                        cbot.send_photo(cid, qr_url, caption=qr_cap, reply_markup=m)
                         return
 
-                    m = types.InlineKeyboardMarkup(row_width=1)
-                    m.add(types.InlineKeyboardButton("⚡ Deposit (FamPay Instant Automated)", callback_data="u_dep_fampay_go"))
-                    m.add(types.InlineKeyboardButton("🔙 𝗕𝗮𝗰𝗸", callback_data="u_back_main"))
-                    cbot.edit_message_text("Instant Automated Deposit via FamPay/UPI\nSelect deposit to continue:", cid, call.message.message_id, reply_markup=m)
-
-                elif data == "u_dep_fampay_go":
-                    user_states[f"{bot_id}_{uid}"] = "wait_user_dep_amt"
-                    cbot.send_message(cid, "Enter amount you want to deposit (e.g. 10):")
-
-                elif data == "u_ord":
-                    m = types.InlineKeyboardMarkup(row_width=2)
-                    m.add(
-                        types.InlineKeyboardButton("📸 Instagram", callback_data="u_plat_Instagram"),
-                        types.InlineKeyboardButton("📘 Facebook", callback_data="u_plat_Facebook")
+                    keypad_amounts[uid] = cur_amt
+                    kp, disp = build_deposit_keypad(cur_amt)
+                    kp_screen = (
+                        "╭──────────────────────────╮\n"
+                        "  💶 DEPOSIT 💷\n"
+                        "╰──────────────────────────╯\n"
+                        "  Enter The Amount Below\n\n"
+                        "😊 Minimum ₹1 Max ₹10,000\n\n"
+                        f"💵 Amount : ₹{disp}"
                     )
-                    m.add(
-                        types.InlineKeyboardButton("✈️ Telegram", callback_data="u_plat_Telegram"),
-                        types.InlineKeyboardButton("🔙 𝗕𝗮𝗰𝗸", callback_data="u_back_main")
-                    )
-                    cbot.edit_message_text("Select Platform:", cid, call.message.message_id, reply_markup=m)
+                    cbot.edit_message_text(kp_screen, cid, mid, reply_markup=kp)
 
-                elif data.startswith("u_plat_"):
-                    plat = data.replace("u_plat_", "")
+                elif data.startswith("chk_pay_"):
+                    utr = data.replace("chk_pay_", "")
                     conn = get_db()
                     cur = conn.cursor()
-                    cur.execute("SELECT DISTINCT sub_category FROM bot_services WHERE bot_id=? AND platform=?", (bot_id, plat))
-                    subs = cur.fetchall()
+                    cur.execute("SELECT status, amount FROM transactions WHERE tx_id=?", (utr,))
+                    row = cur.fetchone()
                     conn.close()
+                    if row and row["status"] == "completed":
+                        cbot.answer_callback_query(call.id, f"Payment Verified! ₹{row['amount']} credited.", show_alert=True)
+                        cbot.send_message(cid, "Payment Received Successfully!", reply_markup=get_user_main_menu())
+                    else:
+                        cbot.answer_callback_query(call.id, "Payment not received yet!\n\nPlease complete the payment on your UPI app and click Verify again.", show_alert=True)
 
-                    m = types.InlineKeyboardMarkup(row_width=1)
-                    for s in subs:
-                        m.add(types.InlineKeyboardButton(s["sub_category"], callback_data=f"u_sub_{plat}_{s['sub_category']}"))
-                    m.add(types.InlineKeyboardButton("🔙 𝗕𝗮𝗰𝗸", callback_data="u_ord"))
-                    cbot.edit_message_text(f"{plat} Categories:", cid, call.message.message_id, reply_markup=m)
+                elif data.startswith("cnl_pay_"):
+                    cbot.edit_message_caption("🛑 Deposit CANCELLED", cid, mid)
+                    m = types.InlineKeyboardMarkup()
+                    m.add(types.InlineKeyboardButton("⭐ Main Menu", callback_data="u_back_main"))
+                    cbot.send_message(cid, "Deposit was cancelled.", reply_markup=m)
+
+                elif data == "u_hist":
+                    hist_screen = (
+                        "🗓️ Your Order History\n\n"
+                        "Select Order Type To Track Delivery Status.\n\n"
+                        "Completed Orders Update Automatically, Cancelled Orders Are Eligible For Instant Refunds 💎"
+                    )
+                    m = types.InlineKeyboardMarkup(row_width=2)
+                    m.add(types.InlineKeyboardButton("🔵 Pending", callback_data="h_pending"), types.InlineKeyboardButton("🟢 Completed", callback_data="h_completed"))
+                    m.add(types.InlineKeyboardButton("❌ Cancelled", callback_data="h_cancelled"), types.InlineKeyboardButton("🟣 Refund", callback_data="h_refund"))
+                    m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="u_back_main"))
+                    cbot.edit_message_text(hist_screen, cid, mid, reply_markup=m)
+
+                elif data in ["h_pending", "h_completed", "h_cancelled"]:
+                    st = data.replace("h_", "").capitalize()
+                    conn = get_db()
+                    cur = conn.cursor()
+                    cur.execute("SELECT service_name, quantity, charge FROM bot_orders WHERE bot_id=? AND user_id=? AND status=?", (bot_id, uid, st))
+                    ords = cur.fetchall()
+                    conn.close()
+                    m = types.InlineKeyboardMarkup()
+                    m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="u_hist"))
+                    if ords:
+                        t = "\n\n".join([f"📦 {o['service_name']}\nQty: {o['quantity']} | Cost: ₹{o['charge']}" for o in ords])
+                        cbot.edit_message_text(f"{st} Orders:\n\n{t}", cid, mid, reply_markup=m)
+                    else:
+                        cbot.edit_message_text(f"╭──────────────────────────╮\n  {st} Orders\n╰──────────────────────────╯\n\n⚠️ No Orders Found In This Section", cid, mid, reply_markup=m)
+
+                elif data == "h_refund":
+                    m = types.InlineKeyboardMarkup()
+                    m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="u_hist"))
+                    ref_text = (
+                        "Refund\n\n"
+                        "👾 Send The Order Id You Want To Refund\n\n"
+                        "👾 Refund Is Given Only If The Order Is Cancelled"
+                    )
+                    cbot.edit_message_text(ref_text, cid, mid, reply_markup=m)
+
+                elif data == "u_ord":
+                    ord_screen = (
+                        "╭──────────────────────────╮\n"
+                        "  ORDER NOW 🖤\n"
+                        "╰──────────────────────────╯\n\n"
+                        "✅ SELECT A PLATFORM\n"
+                        "Choose Your Platform To Browse High Speed Guaranteed Packages With Instant Delivery ⏳\n"
+                        "❄️❄️❄️❄️❄️❄️❄️❄️❄️❄️"
+                    )
+                    m = types.InlineKeyboardMarkup(row_width=2)
+                    m.add(types.InlineKeyboardButton("📸 INSTAGRAM", callback_data="u_plat_Instagram"), types.InlineKeyboardButton("📘 FACEBOOK", callback_data="u_plat_Facebook"))
+                    m.add(types.InlineKeyboardButton("✈️ TELEGRAM", callback_data="u_plat_Telegram"))
+                    m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="u_back_main"))
+                    cbot.edit_message_text(ord_screen, cid, mid, reply_markup=m)
+
+                elif data == "u_plat_Instagram":
+                    ig_screen = (
+                        "👑 Select Your Service 👑\n\n"
+                        "Choose A Service Category 💵\n"
+                        "All Categories Feature Real-Time Processing And Competitive Rates.\n"
+                        "🖤🖤🖤"
+                    )
+                    m = types.InlineKeyboardMarkup(row_width=2)
+                    m.add(types.InlineKeyboardButton("👥 Ig Followers", callback_data="u_sub_Instagram_Ig Followers"), types.InlineKeyboardButton("💖 Ig Likes", callback_data="u_sub_Instagram_Ig Likes"))
+                    m.add(types.InlineKeyboardButton("🎬 Reels View's", callback_data="u_sub_Instagram_Reels View's"), types.InlineKeyboardButton("👁️ Post View's", callback_data="u_sub_Instagram_Post View's"))
+                    m.add(types.InlineKeyboardButton("⏩ MORE", callback_data="u_ig_more"))
+                    m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="u_ord"))
+                    cbot.edit_message_text(ig_screen, cid, mid, reply_markup=m)
+
+                elif data == "u_ig_more":
+                    ig_more = (
+                        "👑 Select Your Service 👑\n\n"
+                        "Choose A Service Category 💵\n"
+                        "All Categories Feature Real-Time Processing And Competitive Rates.\n"
+                        "🖤🖤🖤"
+                    )
+                    m = types.InlineKeyboardMarkup(row_width=2)
+                    m.add(types.InlineKeyboardButton("🚀 Post Share", callback_data="u_sub_Instagram_Post Share"), types.InlineKeyboardButton("🔁 Repost", callback_data="u_sub_Instagram_Repost"))
+                    m.add(types.InlineKeyboardButton("💬 Comment", callback_data="u_sub_Instagram_Comment"), types.InlineKeyboardButton("👀 Story View's", callback_data="u_sub_Instagram_Story View's"))
+                    m.add(types.InlineKeyboardButton("⏮️ PREVIOUS", callback_data="u_plat_Instagram"))
+                    m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="u_ord"))
+                    cbot.edit_message_text(ig_more, cid, mid, reply_markup=m)
 
                 elif data.startswith("u_sub_"):
                     parts = data.split("_")
                     plat = parts[2]
                     sub_cat = parts[3]
-
                     conn = get_db()
                     cur = conn.cursor()
-                    cur.execute("SELECT id, service_name, selling_price_per_100, is_published FROM bot_services WHERE bot_id=? AND platform=? AND sub_category=?", (bot_id, plat, sub_cat))
+                    cur.execute("SELECT id, service_name, selling_price_per_100 FROM bot_services WHERE bot_id=? AND platform=? AND sub_category=? AND is_published=1", (bot_id, plat, sub_cat))
                     srvs = cur.fetchall()
                     conn.close()
 
                     m = types.InlineKeyboardMarkup(row_width=1)
-                    has_active = False
                     for s in srvs:
-                        if s["is_published"] == 1:
-                            has_active = True
-                            m.add(types.InlineKeyboardButton(f"{s['service_name']} - Rs {s['selling_price_per_100']}/100", callback_data=f"u_choose_srv_{s['id']}"))
+                        m.add(types.InlineKeyboardButton(f"{s['service_name']}", callback_data=f"u_view_srv_{s['id']}"))
+                    m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data=f"u_plat_{plat}"))
+                    cbot.edit_message_text(f"🛒 {sub_cat.upper()}\n\n👾 Select A Service To View Rates And Place Order", cid, mid, reply_markup=m)
 
-                    m.add(types.InlineKeyboardButton("🔙 𝗕𝗮𝗰𝗸", callback_data=f"u_plat_{plat}"))
-
-                    if not has_active:
-                        cbot.edit_message_text("No service available right now. Owner has not published this service yet.", cid, call.message.message_id, reply_markup=m)
-                    else:
-                        cbot.edit_message_text(f"Available {sub_cat} Services:", cid, call.message.message_id, reply_markup=m)
-
-                elif data.startswith("u_choose_srv_"):
-                    sid = int(data.replace("u_choose_srv_", ""))
+                elif data.startswith("u_view_srv_"):
+                    sid = int(data.replace("u_view_srv_", ""))
                     conn = get_db()
                     cur = conn.cursor()
-                    cur.execute("SELECT service_name, selling_price_per_100, description FROM bot_services WHERE id=?", (sid,))
+                    cur.execute("SELECT * FROM bot_services WHERE id=?", (sid,))
                     srv = cur.fetchone()
                     conn.close()
 
-                    user_states[f"{bot_id}_{uid}"] = {"step": "wait_order_link", "service_id": sid}
-                    txt_details = (
-                        f"Service: {srv['service_name']}\n"
-                        f"Price: Rs {srv['selling_price_per_100']} per 100\n\n"
-                        f"Details: {srv['description']}\n\n"
-                        f"Send target post, reel, or profile link:"
+                    user_states[f"{bot_id}_{uid}"] = {"step": "wait_link", "service_id": sid}
+                    srv_desc = (
+                        f"╭──────────────────────────╮\n"
+                        f"  {srv['service_name'].upper()}\n"
+                        f"╰──────────────────────────╯\n\n"
+                        f"💵 Price : ₹{srv['selling_price_per_100']} / 100\n"
+                        f"🎯 Min : {srv['min_qty']} • Max : {srv['max_qty']}\n\n"
+                        f"📜 DETAILS\n\n"
+                        f"{srv['description']}\n\n"
+                        f"🔗 Now Send Your Profile / Post Link"
                     )
-                    cbot.send_message(cid, txt_details)
+                    m = types.InlineKeyboardMarkup()
+                    m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data=f"u_sub_{srv['platform']}_{srv['sub_category']}"))
+                    cbot.edit_message_text(srv_desc, cid, mid, reply_markup=m)
 
-                elif data.startswith("u_qty_btn_"):
-                    parts = data.split("_")
-                    qty = int(parts[3])
-                    sid = int(parts[4])
-                    link = user_states.get(f"{bot_id}_{uid}", {}).get("link", "")
-                    
+                elif data == "u_supp":
                     conn = get_db()
                     cur = conn.cursor()
-                    cur.execute("SELECT service_name, selling_price_per_100, main_api_service_id FROM bot_services WHERE id=?", (sid,))
+                    cur.execute("SELECT support_contact FROM child_bots WHERE bot_id=?", (bot_id,))
+                    supp = cur.fetchone()["support_contact"] or "@pranavsmm"
+                    conn.close()
+                    supp_url = f"https://wa.me/{supp.replace('+', '')}" if supp.isdigit() else f"https://t.me/{supp.replace('@', '')}"
+                    m = types.InlineKeyboardMarkup(row_width=1)
+                    m.add(types.InlineKeyboardButton("💬 Chat with Support", url=supp_url))
+                    m.add(types.InlineKeyboardButton("🔙 Back", callback_data="u_back_main"))
+                    cbot.edit_message_text(f"Customer Support:\n\nDirect Contact: {supp}", cid, mid, reply_markup=m)
+
+                elif data == "u_cyob":
+                    cyob_text = (
+                        "👑 CREATE YOUR OWN BOT ★ PRO\n\n"
+                        "START YOUR OWN BRANDED RESELLER BUSINESS IN MINUTES.\n\n"
+                        "1️⃣ OPEN ➔ @BotFather\n"
+                        "2️⃣ SEND /newbot & FOLLOW THE STEPS\n"
+                        "3️⃣ COPY THE BOT TOKEN IT GIVES YOU\n"
+                        "4️⃣ PRESS ADD BOT AND PASTE IT HERE\n"
+                        "❄️❄️❄️❄️❄️❄️❄️❄️❄️\n"
+                        "YOUR BOT GOES LIVE INSTANTLY WITH ALL FEATURES 🖤"
+                    )
+                    m = types.InlineKeyboardMarkup(row_width=2)
+                    m.add(types.InlineKeyboardButton("💛 Your Bots", callback_data="m_mybots"), types.InlineKeyboardButton("➕ Add Bot", callback_data="m_add_bot"))
+                    m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="u_back_main"))
+                    cbot.edit_message_text(cyob_text, cid, mid, reply_markup=m)
+
+                # ================= OWNER PANEL (/admin) =================
+                elif data.startswith("a_") or data.startswith("adm_"):
+                    if uid != owner_id:
+                        cbot.answer_callback_query(call.id, "Access Denied", show_alert=True)
+                        return
+
+                    if data == "a_back_main":
+                        cbot.send_message(cid, "Main Menu:", reply_markup=get_user_main_menu())
+
+                    elif data == "adm_back_panel":
+                        admin_text = (
+                            "👑 Owner Panel\n\n"
+                            f"🤖 @{bot_username}\n\n"
+                            "Manage Your Bot Settings: Set Your Own Service Prices, Configure Your Payment Gateway API, And Manage Your Users.\n\n"
+                            "☆━─━─━─━─━─━─━─━☆"
+                        )
+                        cbot.edit_message_text(admin_text, cid, mid, reply_markup=get_owner_panel())
+
+                    elif data == "a_services":
+                        srv_menu = (
+                            "📦 SERVICES\n\n"
+                            "📱 SELECT PLATFORM TO MANAGE SERVICES\n\n"
+                            "CHOOSE A PLATFORM TO VIEW MASTER SERVICES, SET YOUR OWN SELLING PRICE, AND PUBLISH THEM TO YOUR BOT.\n\n"
+                            "☆━─━─━─━─━─━─━─━☆"
+                        )
+                        m = types.InlineKeyboardMarkup(row_width=1)
+                        m.add(
+                            types.InlineKeyboardButton("INSTAGRAM", callback_data="adm_plat_Instagram"),
+                            types.InlineKeyboardButton("FACEBOOK", callback_data="adm_plat_Facebook"),
+                            types.InlineKeyboardButton("TELEGRAM", callback_data="adm_plat_Telegram"),
+                            types.InlineKeyboardButton("Go Back", callback_data="adm_back_panel")
+                        )
+                        cbot.edit_message_text(srv_menu, cid, mid, reply_markup=m)
+
+                    elif data.startswith("adm_plat_"):
+                        plat = data.replace("adm_plat_", "")
+                        conn = get_db()
+                        cur = conn.cursor()
+                        cur.execute("SELECT id, service_name, cost_price, selling_price_per_100, is_published FROM bot_services WHERE bot_id=? AND platform=?", (bot_id, plat))
+                        srvs = cur.fetchall()
+                        conn.close()
+
+                        m = types.InlineKeyboardMarkup(row_width=1)
+                        for s in srvs:
+                            m.add(types.InlineKeyboardButton(f"{s['service_name']} • ₹{s['cost_price']}", callback_data=f"adm_manage_srv_{s['id']}"))
+                        m.add(types.InlineKeyboardButton("Go Back", callback_data="a_services"))
+                        cbot.edit_message_text(f"📱 {plat} Services:\n\nTap A Service To Set Your Price And Publish", cid, mid, reply_markup=m)
+
+                    elif data.startswith("adm_manage_srv_"):
+                        sid = int(data.replace("adm_manage_srv_", ""))
+                        conn = get_db()
+                        cur = conn.cursor()
+                        cur.execute("SELECT * FROM bot_services WHERE id=?", (sid,))
+                        srv = cur.fetchone()
+                        conn.close()
+
+                        srv_info = (
+                            f"📦 {srv['service_name'].upper()}\n\n"
+                            f"💵 Base Price : ₹{srv['cost_price']} / 100 (Your Cost)\n"
+                            f"💰 Your Price : ₹{srv['selling_price_per_100']}\n"
+                            f"🎯 {srv['min_qty']} - {srv['max_qty']}\n\n"
+                            f"{srv['description']}\n\n"
+                            "SET YOUR PRICE HIGHER THAN BASE TO EARN PROFIT ON EVERY AUTOMATED ORDER.\n\n"
+                            "☆━─━─━─━─━─━─━─━☆"
+                        )
+                        m = types.InlineKeyboardMarkup(row_width=1)
+                        m.add(types.InlineKeyboardButton("Set Price & Publish", callback_data=f"adm_setprice_{sid}"))
+                        m.add(types.InlineKeyboardButton("Go Back", callback_data=f"adm_plat_{srv['platform']}"))
+                        cbot.edit_message_text(srv_info, cid, mid, reply_markup=m)
+
+                    elif data.startswith("adm_setprice_"):
+                        sid = int(data.replace("adm_setprice_", ""))
+                        user_states[f"{bot_id}_{uid}"] = {"step": "wait_price_input", "sid": sid}
+                        m = types.InlineKeyboardMarkup()
+                        m.add(types.InlineKeyboardButton("Cancel", callback_data="adm_back_panel"))
+                        cbot.send_message(cid, "✍️ INPUT\n\n🪙 Send Your Selling Price Per 100", reply_markup=m)
+
+                    elif data == "a_payment":
+                        conn = get_db()
+                        cur = conn.cursor()
+                        cur.execute("SELECT fampay_active, paytm_active, bharatpe_active, fampay_apikey FROM child_bots WHERE bot_id=?", (bot_id,))
+                        bset = cur.fetchone()
+                        conn.close()
+
+                        f_st = "Active ✅" if bset["fampay_active"] == 1 else "Disabled ❌"
+                        p_st = "Active ✅" if bset["paytm_active"] == 1 else "Disabled ❌"
+                        bp_st = "Active ✅" if bset["bharatpe_active"] == 1 else "NOT CONFIGURED ❌"
+                        k_st = "(Configured Securely)" if bset["fampay_apikey"] else "Not Set"
+
+                        pay_screen = (
+                            "💳 MANAGE DEPOSIT GATEWAYS\n\n"
+                            "Configure FamPay, Paytm, Or BharatPe To Let Your Users Deposit Via Automated Upi Qr.\n\n"
+                            f"⚡ FamPay : {f_st}\n"
+                            f"💙 Paytm : {p_st}\n"
+                            f"🧡 BharatPe : {bp_st}\n\n"
+                            f"🔑 Api Key : ************\n"
+                            f"{k_st}"
+                        )
+                        m = types.InlineKeyboardMarkup(row_width=2)
+                        m.add(types.InlineKeyboardButton("⚡ FamPay ➕", callback_data="adm_tgl_fampay"), types.InlineKeyboardButton("💙 Paytm ➕", callback_data="adm_tgl_paytm"))
+                        m.add(types.InlineKeyboardButton("🧡 BharatPe ➕", callback_data="adm_tgl_bp"))
+                        m.add(types.InlineKeyboardButton("Edit Api", callback_data="adm_edit_api"), types.InlineKeyboardButton("Delete Api", callback_data="adm_del_api"))
+                        m.add(types.InlineKeyboardButton("Create Api", url="https://fampay-flame.vercel.app/"))
+                        m.add(types.InlineKeyboardButton("Go Back", callback_data="adm_back_panel"))
+                        cbot.edit_message_text(pay_screen, cid, mid, reply_markup=m)
+
+                    elif data == "adm_edit_api":
+                        user_states[f"{bot_id}_{uid}"] = "wait_api_key_only"
+                        cbot.send_message(cid, "🔑 Send your new API Key from FMP Portal:")
+
+                    elif data == "adm_del_api":
+                        conn = get_db()
+                        cur = conn.cursor()
+                        cur.execute("UPDATE child_bots SET fampay_apikey='' WHERE bot_id=?", (bot_id,))
+                        conn.commit()
+                        conn.close()
+                        cbot.answer_callback_query(call.id, "API Key Deleted!", show_alert=True)
+
+                    elif data == "a_suppcontact":
+                        conn = get_db()
+                        cur = conn.cursor()
+                        cur.execute("SELECT support_contact FROM child_bots WHERE bot_id=?", (bot_id,))
+                        curr = cur.fetchone()["support_contact"] or "@pranavsmm"
+                        conn.close()
+
+                        supp_cfg = (
+                            "🎧 SUPPORT CONTACT\n\n"
+                            f"Current: ({curr})\n\n"
+                            "Users Clicking Support On Your Bot Will Be Directed To This Contact.\n"
+                            "You Can Enter A WhatsApp Number (E.G. 919876543210), Telegram Username (@Username), Or Custom Link."
+                        )
+                        m = types.InlineKeyboardMarkup(row_width=1)
+                        m.add(types.InlineKeyboardButton("Set / Edit Support", callback_data="adm_edit_supp"))
+                        m.add(types.InlineKeyboardButton("Reset To Default", callback_data="adm_reset_supp"))
+                        m.add(types.InlineKeyboardButton("Owner Home", callback_data="adm_back_panel"))
+                        cbot.edit_message_text(supp_cfg, cid, mid, reply_markup=m)
+
+                    elif data == "adm_edit_supp":
+                        user_states[f"{bot_id}_{uid}"] = "wait_supp_input"
+                        m = types.InlineKeyboardMarkup()
+                        m.add(types.InlineKeyboardButton("Cancel", callback_data="adm_back_panel"))
+                        cbot.send_message(cid, "✍️ Support Contact\n\nSend Your WhatsApp Number (E.g. 919876543210), Telegram Username (@username), Or Custom Link.", reply_markup=m)
+
+                    elif data == "adm_reset_supp":
+                        conn = get_db()
+                        cur = conn.cursor()
+                        cur.execute("UPDATE child_bots SET support_contact='@pranavsmm' WHERE bot_id=?", (bot_id,))
+                        conn.commit()
+                        conn.close()
+                        cbot.answer_callback_query(call.id, "Reset to @pranavsmm", show_alert=True)
+
+                    elif data == "a_promode":
+                        conn = get_db()
+                        cur = conn.cursor()
+                        cur.execute("SELECT pro_mode FROM child_bots WHERE bot_id=?", (bot_id,))
+                        cur_m = cur.fetchone()["pro_mode"]
+                        new_m = 0 if cur_m == 1 else 1
+                        cur.execute("UPDATE child_bots SET pro_mode=? WHERE bot_id=?", (new_m, bot_id))
+                        conn.commit()
+                        conn.close()
+                        cbot.answer_callback_query(call.id, f"Pro Mode is now {'ON ✅' if new_m == 1 else 'OFF ❌'}", show_alert=True)
+
+            # Text Handler
+            @cbot.message_handler(func=lambda m: f"{bot_id}_{m.from_user.id}" in user_states and not m.text.startswith('/'))
+            def c_text_inputs(m):
+                uid = m.from_user.id
+                cid = m.chat.id
+                key = f"{bot_id}_{uid}"
+                st_data = user_states.pop(key, None)
+                txt = m.text.strip()
+
+                if isinstance(st_data, dict) and st_data.get("step") == "wait_link":
+                    sid = st_data["service_id"]
+                    user_states[key] = {"step": "wait_qty", "service_id": sid, "link": txt}
+                    cbot.send_message(cid, f"Link Received: {txt}\n\nEnter Quantity:")
+
+                elif isinstance(st_data, dict) and st_data.get("step") == "wait_qty":
+                    if not txt.isdigit():
+                        cbot.send_message(cid, "Please enter numbers only.")
+                        return
+                    qty = int(txt)
+                    sid = st_data["service_id"]
+                    link = st_data["link"]
+
+                    conn = get_db()
+                    cur = conn.cursor()
+                    cur.execute("SELECT * FROM bot_services WHERE id=?", (sid,))
                     srv = cur.fetchone()
                     cur.execute("SELECT balance FROM bot_clients WHERE bot_id=? AND user_id=?", (bot_id, uid))
                     bal = cur.fetchone()["balance"]
@@ -446,11 +795,11 @@ def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
                     cost = (qty / 100.0) * srv["selling_price_per_100"]
                     if bal < cost:
                         m = types.InlineKeyboardMarkup()
-                        m.add(types.InlineKeyboardButton("💳 𝗗𝗲𝗽𝗼𝘀𝗶𝘁 𝗡𝗼𝘄", callback_data="u_dep"))
-                        cbot.send_message(cid, f"Low Balance!\nOrder Cost: Rs {cost:.2f}\nWallet: Rs {bal:.2f}\nPlease deposit first.", reply_markup=m)
+                        m.add(types.InlineKeyboardButton("💰 Deposit Now", callback_data="u_dep"))
+                        cbot.send_message(cid, f"Low Balance!\nOrder Cost: ₹{cost:.2f}\nYour Balance: ₹{bal:.2f}", reply_markup=m)
                         conn.close()
                     else:
-                        cur.execute("UPDATE bot_clients SET balance = balance - ? WHERE bot_id=? AND user_id=?", (cost, bot_id, uid))
+                        cur.execute("UPDATE bot_clients SET balance = balance - ?, total_spent = total_spent + ? WHERE bot_id=? AND user_id=?", (cost, cost, bot_id, uid))
                         api_order_id = "MANUAL"
                         if MAIN_PANEL_API_KEY and srv["main_api_service_id"]:
                             try:
@@ -462,425 +811,41 @@ def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
                                 pass
 
                         cur.execute("INSERT INTO bot_orders (bot_id, user_id, service_name, link, quantity, charge, api_order_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                                    (bot_id, uid, srv["service_name"], link, qty, cost, api_order_id, "Processing"))
-                        conn.commit()
-                        cur.execute("SELECT log_channel FROM child_bots WHERE bot_id=?", (bot_id,))
-                        lch = cur.fetchone()["log_channel"]
-                        conn.close()
-
-                        cbot.send_message(cid, f"Order Placed Successfully!\n\nService: {srv['service_name']}\nQty: {qty}\nCost: Rs {cost:.2f}\nStatus: Processing")
-                        if lch:
-                            try:
-                                cbot.send_message(lch, f"[NEW ORDER]\nUser: {uid}\nService: {srv['service_name']}\nQty: {qty}")
-                            except Exception:
-                                pass
-
-                elif data == "u_hist":
-                    conn = get_db()
-                    cur = conn.cursor()
-                    cur.execute("SELECT service_name, quantity, charge, status FROM bot_orders WHERE bot_id=? AND user_id=? ORDER BY id DESC LIMIT 5", (bot_id, uid))
-                    orders = cur.fetchall()
-                    conn.close()
-                    m = types.InlineKeyboardMarkup()
-                    m.add(types.InlineKeyboardButton("🔙 𝗕𝗮𝗰𝗸", callback_data="u_back_main"))
-                    txt = "\n\n".join([f"{o['service_name']}\nQty: {o['quantity']} | Cost: Rs {o['charge']:.2f}\nStatus: {o['status']}" for o in orders]) if orders else "No recent orders found."
-                    cbot.edit_message_text(f"Order History:\n\n{txt}", cid, call.message.message_id, reply_markup=m)
-
-                elif data == "u_supp":
-                    conn = get_db()
-                    cur = conn.cursor()
-                    cur.execute("SELECT support_contact FROM child_bots WHERE bot_id=?", (bot_id,))
-                    supp = cur.fetchone()["support_contact"] or "@pranavsmm"
-                    conn.close()
-                    m = types.InlineKeyboardMarkup(row_width=1)
-                    m.add(types.InlineKeyboardButton("💬 Chat with Support", url=f"https://t.me/{supp.replace('@', '')}"), types.InlineKeyboardButton("🔙 𝗕𝗮𝗰𝗸", callback_data="u_back_main"))
-                    cbot.edit_message_text(f"Customer Support:\n\nDirect Contact: {supp}", cid, call.message.message_id, reply_markup=m)
-
-                elif data == "u_cyob":
-                    m = types.InlineKeyboardMarkup(row_width=1)
-                    m.add(types.InlineKeyboardButton("🚀 Open BotFather", url="https://t.me/BotFather"), types.InlineKeyboardButton("🔙 𝗕𝗮𝗰𝗸", callback_data="u_back_main"))
-                    cyob_box = (
-                        "👑 *𝗖𝗥𝗘𝗔𝗧𝗘 𝗬𝗢𝗨𝗥 𝗢𝗪𝗡 𝗕𝗢𝗧* ★ 𝗣𝗥𝗢\n\n"
-                        "╭━━━━━━━━━━━━━━━━━━━╮\n"
-                        " 𝗦𝗧𝗔𝗥𝗧 𝗬𝗢𝗨𝗥 𝗢𝗪𝗡 𝗕𝗥𝗔𝗡𝗗𝗘𝗗 𝗥𝗘𝗦𝗘𝗟𝗟𝗘𝗥 𝗕𝗨𝗦𝗜𝗡𝗘𝗦𝗦 𝗜𝗡 𝗠𝗜𝗡𝗨𝗧𝗘𝗦.\n\n"
-                        " 1️⃣ 𝗢𝗣𝗘𝗡 ➔ @BotFather\n"
-                        " 2️⃣ 𝗦𝗘𝗡𝗗 /newbot & 𝗙𝗢𝗟𝗟𝗢𝗪 𝗧𝗛𝗘 𝗦𝗧𝗘𝗣𝗦\n"
-                        " 3️⃣ 𝗖𝗢𝗣𝗬 𝗧𝗛𝗘 𝗕𝗢𝗧 𝗧𝗢𝗞𝗘𝗡 𝗜𝗧 𝗚𝗜𝗩𝗘𝗦 𝗬𝗢𝗨\n"
-                        " 4️⃣ 𝗣𝗔𝗦𝗧𝗘 𝗜𝗧 𝗜𝗡 𝗠𝗔𝗦𝗧𝗘𝗥 𝗕𝗢𝗧\n"
-                        " ❄️❄️❄️❄️❄️❄️❄️❄️❄️\n"
-                        " 𝗬𝗢𝗨𝗥 𝗕𝗢𝗧 𝗚𝗢𝗘𝗦 𝗟𝗜𝗩𝗘 𝗜𝗡𝗦𝗧𝗔𝗡𝗧𝗟𝗬 🖤\n"
-                        "╰━━━━━━━━━━━━━━━━━━╯"
-                    )
-                    cbot.edit_message_text(cyob_box, cid, call.message.message_id, reply_markup=m, parse_mode="Markdown")
-
-                # ================= OWNER PANEL SUB-MENUS =================
-                elif data.startswith("a_") or data.startswith("adm_"):
-                    if uid != owner_id:
-                        cbot.answer_callback_query(call.id, "Access Denied", show_alert=True)
-                        return
-
-                    if data == "a_back_main":
-                        cbot.send_message(cid, "Main Menu:", reply_markup=get_user_main_menu())
-
-                    elif data == "adm_back_panel":
-                        admin_text = (
-                            "╔════════════════════════════╗\n"
-                            "   👑 𝗢𝗪𝗡𝗘𝗥 𝗣𝗔𝗡𝗘𝗟\n"
-                            "╚════════════════════════════╝\n\n"
-                            f"🤖 @{bot_username}\n\n"
-                            "𝗠𝗮𝗻𝗮𝗴𝗲 𝗬𝗼𝘂𝗿 𝗕𝗼𝘁 𝗦𝗲𝘁𝘁𝗶𝗻𝗴𝘀: 𝗦𝗲𝘁 𝗬𝗼𝘂𝗿 𝗢𝘄𝗻 𝗦𝗲𝗿𝘃𝗶𝗰𝗲 𝗣𝗿𝗶𝗰𝗲𝘀, "
-                            "𝗖𝗼𝗻𝗳𝗶𝗴𝘂𝗿𝗲 𝗬𝗼𝘂𝗿 𝗣𝗮𝘆𝗺𝗲𝗻𝘁 𝗚𝗮𝘁𝗲𝘄𝗮𝘆 𝗔𝗣𝗜, 𝗔𝗻𝗱 𝗠𝗮𝗻𝗮𝗴𝗲 𝗬𝗼𝘂𝗿 𝗨𝘀𝗲𝗿𝘀.\n\n"
-                            "☆━─━─━─━─━─━─━─━☆"
-                        )
-                        cbot.edit_message_text(admin_text, cid, call.message.message_id, reply_markup=get_owner_panel(), parse_mode="Markdown")
-
-                    elif data == "a_services":
-                        m = types.InlineKeyboardMarkup(row_width=2)
-                        m.add(
-                            types.InlineKeyboardButton("📸 Instagram", callback_data="adm_plat_Instagram"),
-                            types.InlineKeyboardButton("📘 Facebook", callback_data="adm_plat_Facebook")
-                        )
-                        m.add(
-                            types.InlineKeyboardButton("✈️ Telegram", callback_data="adm_plat_Telegram"),
-                            types.InlineKeyboardButton("🔙 Back to Admin", callback_data="adm_back_panel")
-                        )
-                        cbot.edit_message_text("Select Platform to Manage & Publish Services:", cid, call.message.message_id, reply_markup=m)
-
-                    elif data.startswith("adm_plat_"):
-                        plat = data.replace("adm_plat_", "")
-                        conn = get_db()
-                        cur = conn.cursor()
-                        cur.execute("SELECT DISTINCT sub_category FROM bot_services WHERE bot_id=? AND platform=?", (bot_id, plat))
-                        subs = cur.fetchall()
-                        conn.close()
-
-                        m = types.InlineKeyboardMarkup(row_width=1)
-                        for s in subs:
-                            m.add(types.InlineKeyboardButton(s["sub_category"], callback_data=f"adm_sub_{plat}_{s['sub_category']}"))
-                        m.add(types.InlineKeyboardButton("🔙 𝗕𝗮𝗰𝗸", callback_data="a_services"))
-                        cbot.edit_message_text(f"Manage {plat} Sub-Categories:", cid, call.message.message_id, reply_markup=m)
-
-                    elif data.startswith("adm_sub_"):
-                        parts = data.split("_")
-                        plat = parts[2]
-                        sub_cat = parts[3]
-                        conn = get_db()
-                        cur = conn.cursor()
-                        cur.execute("SELECT id, service_name, cost_price, selling_price_per_100, is_published FROM bot_services WHERE bot_id=? AND platform=? AND sub_category=?", (bot_id, plat, sub_cat))
-                        srvs = cur.fetchall()
-                        conn.close()
-
-                        m = types.InlineKeyboardMarkup(row_width=1)
-                        for s in srvs:
-                            st = "Published" if s["is_published"] == 1 else "Unpublished"
-                            m.add(types.InlineKeyboardButton(f"{s['service_name']} (Cost: Rs {s['cost_price']}) [{st}]", callback_data=f"adm_manage_srv_{s['id']}"))
-                        m.add(types.InlineKeyboardButton("🔙 𝗕𝗮𝗰𝗸", callback_data=f"adm_plat_{plat}"))
-                        cbot.edit_message_text(f"Services under {sub_cat}:", cid, call.message.message_id, reply_markup=m)
-
-                    elif data.startswith("adm_manage_srv_"):
-                        sid = int(data.replace("adm_manage_srv_", ""))
-                        conn = get_db()
-                        cur = conn.cursor()
-                        cur.execute("SELECT service_name, cost_price, selling_price_per_100, is_published, description, platform, sub_category FROM bot_services WHERE id=?", (sid,))
-                        srv = cur.fetchone()
-                        conn.close()
-
-                        m = types.InlineKeyboardMarkup(row_width=1)
-                        m.add(types.InlineKeyboardButton("Set Price & Publish", callback_data=f"adm_setprice_{sid}"))
-                        m.add(types.InlineKeyboardButton("Back", callback_data=f"adm_sub_{srv['platform']}_{srv['sub_category']}"))
-
-                        st_txt = "Published (Live in Bot)" if srv['is_published'] == 1 else "Unpublished"
-                        details_txt = (
-                            f"Service: {srv['service_name']}\n"
-                            f"Main Panel Cost: Rs {srv['cost_price']} per 100\n"
-                            f"Your Selling Price: Rs {srv['selling_price_per_100']} per 100\n"
-                            f"Status: {st_txt}\n\n"
-                            f"Details: {srv['description']}"
-                        )
-                        cbot.edit_message_text(details_txt, cid, call.message.message_id, reply_markup=m)
-
-                    elif data.startswith("adm_setprice_"):
-                        sid = int(data.replace("adm_setprice_", ""))
-                        user_states[f"{bot_id}_{uid}"] = {"step": "wait_set_price", "service_id": sid}
-                        cbot.send_message(cid, "How much rupees do you want to sell per 100? (e.g. 3 or 5):")
-
-                    elif data == "a_payment":
-                        m = types.InlineKeyboardMarkup(row_width=1)
-                        m.add(
-                            types.InlineKeyboardButton("FMP (FamPay)", callback_data="adm_pay_fmp"),
-                            types.InlineKeyboardButton("Paytm", callback_data="adm_pay_paytm"),
-                            types.InlineKeyboardButton("Back to Admin", callback_data="adm_back_panel")
-                        )
-                        cbot.edit_message_text("Select Payment Gateway to Configure:", cid, call.message.message_id, reply_markup=m)
-
-                    elif data == "adm_pay_fmp":
-                        m = types.InlineKeyboardMarkup(row_width=1)
-                        m.add(
-                            types.InlineKeyboardButton("Create API (Portal)", url="https://fampay-flame.vercel.app/"),
-                            types.InlineKeyboardButton("Add API (Endpoint & Key)", callback_data="adm_fmp_add_api"),
-                            types.InlineKeyboardButton("Back", callback_data="a_payment")
-                        )
-                        cbot.edit_message_text(
-                            "FamPay (FMP) Gateway Integration:\n\n"
-                            "1. Click Create API to setup your FMP merchant portal.\n"
-                            "2. Click Add API to paste your live Endpoint URL & API Key here.",
-                            cid, call.message.message_id, reply_markup=m
-                        )
-
-                    elif data == "adm_fmp_add_api":
-                        user_states[f"{bot_id}_{uid}"] = "wait_fmp_endpoint"
-                        cbot.send_message(cid, "Send your FamPay API URL Endpoint:")
-
-                    elif data == "adm_pay_paytm":
-                        cbot.send_message(cid, "Paytm Integration: Configure Paytm merchant inside FMP portal to get unified API key.")
-
-                    elif data == "a_logchan":
-                        m = types.InlineKeyboardMarkup(row_width=1)
-                        m.add(
-                            types.InlineKeyboardButton("Add Log Channel", callback_data="adm_add_logchan"),
-                            types.InlineKeyboardButton("Verify Admin", callback_data="adm_verify_logchan"),
-                            types.InlineKeyboardButton("Back to Admin", callback_data="adm_back_panel")
-                        )
-                        cbot.edit_message_text("Log Channel Settings:\nEvery order and deposit will be logged here.", cid, call.message.message_id, reply_markup=m)
-
-                    elif data == "adm_add_logchan":
-                        user_states[f"{bot_id}_{uid}"] = "wait_logchan_user"
-                        cbot.send_message(cid, "Send your channel username (e.g. @MyLogChannel):")
-
-                    elif data == "adm_verify_logchan":
-                        conn = get_db()
-                        cur = conn.cursor()
-                        cur.execute("SELECT log_channel FROM child_bots WHERE bot_id=?", (bot_id,))
-                        ch = cur.fetchone()["log_channel"]
-                        conn.close()
-                        if not ch:
-                            cbot.send_message(cid, "Please add a log channel username first!")
-                        else:
-                            try:
-                                res = cbot.get_chat_member(ch, cbot.get_me().id)
-                                if res.status in ['administrator', 'creator']:
-                                    cbot.send_message(cid, f"Log Channel Connected! Bot is Verified Admin in {ch}")
-                                else:
-                                    cbot.send_message(cid, f"Verification Failed: Make sure @{bot_username} is an Admin in {ch}")
-                            except Exception as e:
-                                cbot.send_message(cid, f"Verification Failed: {e}")
-
-                    elif data == "a_forcesub":
-                        user_states[f"{bot_id}_{uid}"] = "wait_force_sub"
-                        cbot.send_message(cid, "Send Force Sub Channel username (e.g. @MyChannel):")
-
-                    elif data == "a_users":
-                        conn = get_db()
-                        cur = conn.cursor()
-                        cur.execute("SELECT COUNT(*) as total FROM bot_clients WHERE bot_id=?", (bot_id,))
-                        t = cur.fetchone()["total"]
-                        conn.close()
-                        cbot.send_message(cid, f"Total Registered Users in Bot: {t}", reply_markup=get_owner_panel())
-
-                    elif data == "a_bcast":
-                        user_states[f"{bot_id}_{uid}"] = "wait_bcast_msg"
-                        cbot.send_message(cid, "Send broadcast announcement text:")
-
-                    elif data == "a_addbal":
-                        user_states[f"{bot_id}_{uid}"] = "wait_add_bal"
-                        cbot.send_message(cid, "Format: User_ID Amount\nExample: 8585055903 50")
-
-                    elif data == "a_dedbal":
-                        user_states[f"{bot_id}_{uid}"] = "wait_ded_bal"
-                        cbot.send_message(cid, "Format: User_ID Amount\nExample: 8585055903 20")
-
-                    elif data == "a_ban":
-                        user_states[f"{bot_id}_{uid}"] = "wait_ban_user"
-                        cbot.send_message(cid, "Send User_ID to ban:")
-
-                    elif data == "a_unban":
-                        user_states[f"{bot_id}_{uid}"] = "wait_unban_user"
-                        cbot.send_message(cid, "Send User_ID to unban:")
-
-                    elif data == "a_suppcontact":
-                        user_states[f"{bot_id}_{uid}"] = "wait_supp_contact"
-                        cbot.send_message(cid, "Send your support contact username (e.g. @pranavsmm):")
-
-                    elif data == "a_promode":
-                        conn = get_db()
-                        cur = conn.cursor()
-                        cur.execute("SELECT pro_mode FROM child_bots WHERE bot_id=?", (bot_id,))
-                        curr = cur.fetchone()["pro_mode"]
-                        new_m = 0 if curr == 1 else 1
-                        cur.execute("UPDATE child_bots SET pro_mode=? WHERE bot_id=?", (new_m, bot_id))
+                                    (bot_id, uid, srv["service_name"], link, qty, cost, api_order_id, "Pending"))
                         conn.commit()
                         conn.close()
-                        cbot.send_message(cid, f"Pro Mode: {'Turned ON' if new_m == 1 else 'Turned OFF'}", reply_markup=get_owner_panel())
+                        cbot.send_message(cid, f"🎉 Order Placed Successfully!\n\nService: {srv['service_name']}\nQty: {qty}\nCost: ₹{cost:.2f}")
 
-            # Text Inputs Handler
-            @cbot.message_handler(func=lambda m: f"{bot_id}_{m.from_user.id}" in user_states and not m.text.startswith('/'))
-            def c_text_inputs(m):
-                uid = m.from_user.id
-                cid = m.chat.id
-                key = f"{bot_id}_{uid}"
-                state_data = user_states.pop(key, None)
-                txt = m.text.strip()
-
-                if state_data == "wait_user_dep_amt":
-                    try:
-                        amt = float(txt)
-                        tx_code = f"DEP{int(time.time())}{random.randint(100, 999)}"
-                        conn = get_db()
-                        cur = conn.cursor()
-                        cur.execute("SELECT fampay_endpoint, fampay_apikey FROM child_bots WHERE bot_id=?", (bot_id,))
-                        bset = cur.fetchone()
-                        cur.execute("INSERT INTO transactions (tx_id, bot_id, user_id, amount, status) VALUES (?, ?, ?, ?, ?)",
-                                    (tx_code, bot_id, uid, amt, "pending"))
-                        conn.commit()
-                        conn.close()
-
-                        ep = bset["fampay_endpoint"]
-                        akey = bset["fampay_apikey"]
-                        qr_url = ""
-
-                        if ep and akey:
-                            try:
-                                post_body = {"api_key": akey, "amount": amt, "order_id": tx_code}
-                                r = requests.post(ep, json=post_body, timeout=10).json()
-                                qr_url = r.get("qr_url") or r.get("qr_image") or r.get("qr")
-                            except Exception:
-                                pass
-
-                        if not qr_url:
-                            qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=fam@upi&am={amt}&tr={tx_code}"
-
-                        cbot.send_photo(
-                            cid,
-                            qr_url,
-                            caption=f"FamPay Automated Deposit\n\nAmount: Rs {amt:.2f}\nRef: {tx_code}\n\nScan QR and pay. Payment auto-verifies within seconds without pressing any button!"
-                        )
-                    except Exception:
-                        cbot.send_message(cid, "Invalid amount!")
-
-                elif isinstance(state_data, dict) and state_data.get("step") == "wait_order_link":
-                    sid = state_data["service_id"]
-                    user_states[key] = {"link": txt, "service_id": sid}
-                    m = types.InlineKeyboardMarkup(row_width=2)
-                    m.add(
-                        types.InlineKeyboardButton("100", callback_data=f"u_qty_btn_100_{sid}"),
-                        types.InlineKeyboardButton("200", callback_data=f"u_qty_btn_200_{sid}")
-                    )
-                    m.add(
-                        types.InlineKeyboardButton("400", callback_data=f"u_qty_btn_400_{sid}"),
-                        types.InlineKeyboardButton("1000", callback_data=f"u_qty_btn_1000_{sid}")
-                    )
-                    cbot.send_message(cid, f"Link received: {txt}\n\nSelect quantity below:", reply_markup=m)
-
-                elif isinstance(state_data, dict) and state_data.get("step") == "wait_set_price":
+                elif isinstance(st_data, dict) and st_data.get("step") == "wait_price_input":
                     try:
                         pr = float(txt)
-                        sid = state_data["service_id"]
-                        user_states[key] = {"step": "wait_service_desc", "service_id": sid, "price": pr}
-                        cbot.send_message(cid, "Send your own service details/description (or send 'same' to keep default):")
+                        sid = st_data["sid"]
+                        conn = get_db()
+                        cur = conn.cursor()
+                        cur.execute("UPDATE bot_services SET selling_price_per_100=? WHERE id=?", (pr, sid))
+                        conn.commit()
+                        conn.close()
+                        cbot.send_message(cid, f"Price Updated to ₹{pr} per 100! Service is published.", reply_markup=get_owner_panel())
                     except Exception:
-                        cbot.send_message(cid, "Invalid price number!")
+                        cbot.send_message(cid, "Invalid number!")
 
-                elif isinstance(state_data, dict) and state_data.get("step") == "wait_service_desc":
-                    sid = state_data["service_id"]
-                    pr = state_data["price"]
-                    desc = "Good Quality Speed Fast" if txt.lower() == "same" else txt
-
-                    conn = get_db()
-                    cur = conn.cursor()
-                    cur.execute("UPDATE bot_services SET selling_price_per_100=?, description=?, is_published=1 WHERE id=?", (pr, desc, sid))
-                    conn.commit()
-                    conn.close()
-                    cbot.send_message(cid, f"Service published successfully with price Rs {pr} per 100!", reply_markup=get_owner_panel())
-
-                elif state_data == "wait_fmp_endpoint":
-                    user_states[key] = {"step": "wait_fmp_key", "endpoint": txt}
-                    cbot.send_message(cid, "Now send your FamPay API Key:")
-
-                elif isinstance(state_data, dict) and state_data.get("step") == "wait_fmp_key":
-                    ep = state_data["endpoint"]
-                    conn = get_db()
-                    cur = conn.cursor()
-                    cur.execute("UPDATE child_bots SET fampay_endpoint=?, fampay_apikey=? WHERE bot_id=?", (ep, txt, bot_id))
-                    conn.commit()
-                    conn.close()
-                    cbot.send_message(cid, "FamPay API Endpoint & Key connected successfully!", reply_markup=get_owner_panel())
-
-                elif state_data == "wait_logchan_user":
-                    conn = get_db()
-                    cur = conn.cursor()
-                    cur.execute("UPDATE child_bots SET log_channel=? WHERE bot_id=?", (txt, bot_id))
-                    conn.commit()
-                    conn.close()
-                    cbot.send_message(cid, f"Log channel set to {txt}. Click 'Verify Admin' in Log Channel settings to complete verification.", reply_markup=get_owner_panel())
-
-                elif state_data == "wait_force_sub":
-                    conn = get_db()
-                    cur = conn.cursor()
-                    cur.execute("UPDATE child_bots SET force_channel=? WHERE bot_id=?", (txt, bot_id))
-                    conn.commit()
-                    conn.close()
-                    cbot.send_message(cid, f"Force Sub Channel set to {txt}", reply_markup=get_owner_panel())
-
-                elif state_data == "wait_add_bal":
-                    parts = txt.split()
-                    if len(parts) >= 2:
-                        target_uid, amt = int(parts[0]), float(parts[1])
-                        conn = get_db()
-                        cur = conn.cursor()
-                        cur.execute("UPDATE bot_clients SET balance = balance + ? WHERE bot_id=? AND user_id=?", (amt, bot_id, target_uid))
-                        conn.commit()
-                        conn.close()
-                        cbot.send_message(cid, f"Added Rs {amt} to User {target_uid}", reply_markup=get_owner_panel())
-
-                elif state_data == "wait_ded_bal":
-                    parts = txt.split()
-                    if len(parts) >= 2:
-                        target_uid, amt = int(parts[0]), float(parts[1])
-                        conn = get_db()
-                        cur = conn.cursor()
-                        cur.execute("UPDATE bot_clients SET balance = MAX(0.0, balance - ?) WHERE bot_id=? AND user_id=?", (amt, bot_id, target_uid))
-                        conn.commit()
-                        conn.close()
-                        cbot.send_message(cid, f"Deducted Rs {amt} from User {target_uid}", reply_markup=get_owner_panel())
-
-                elif state_data == "wait_ban_user":
-                    conn = get_db()
-                    cur = conn.cursor()
-                    cur.execute("UPDATE bot_clients SET banned=1 WHERE bot_id=? AND user_id=?", (int(txt), bot_id))
-                    conn.commit()
-                    conn.close()
-                    cbot.send_message(cid, f"Banned User {txt}", reply_markup=get_owner_panel())
-
-                elif state_data == "wait_unban_user":
-                    conn = get_db()
-                    cur = conn.cursor()
-                    cur.execute("UPDATE bot_clients SET banned=0 WHERE bot_id=? AND user_id=?", (int(txt), bot_id))
-                    conn.commit()
-                    conn.close()
-                    cbot.send_message(cid, f"Unbanned User {txt}", reply_markup=get_owner_panel())
-
-                elif state_data == "wait_supp_contact":
+                elif st_data == "wait_supp_input":
                     conn = get_db()
                     cur = conn.cursor()
                     cur.execute("UPDATE child_bots SET support_contact=? WHERE bot_id=?", (txt, bot_id))
                     conn.commit()
                     conn.close()
-                    cbot.send_message(cid, f"Support contact set to {txt}", reply_markup=get_owner_panel())
+                    m = types.InlineKeyboardMarkup()
+                    m.add(types.InlineKeyboardButton("Owner Panel", callback_data="adm_back_panel"))
+                    cbot.send_message(cid, f"╭──────────────────────────╮\n  SUPPORT UPDATED\n╰──────────────────────────╯\n\nYour Clone Bot Support Contact Has Been Updated To:\n{txt}", reply_markup=m)
 
-                elif state_data == "wait_bcast_msg":
+                elif st_data == "wait_api_key_only":
                     conn = get_db()
                     cur = conn.cursor()
-                    cur.execute("SELECT user_id FROM bot_clients WHERE bot_id=?", (bot_id,))
-                    users = cur.fetchall()
+                    cur.execute("UPDATE child_bots SET fampay_apikey=? WHERE bot_id=?", (txt, bot_id))
+                    conn.commit()
                     conn.close()
-                    s_count = 0
-                    for u in users:
-                        try:
-                            cbot.send_message(u["user_id"], f"Announcement:\n\n{txt}")
-                            s_count += 1
-                        except Exception:
-                            pass
-                    cbot.send_message(cid, f"Broadcast sent to {s_count} users.", reply_markup=get_owner_panel())
+                    cbot.send_message(cid, "FamPay API Key Updated Successfully!", reply_markup=get_owner_panel())
 
             print(f"[CHILD BOT ONLINE] @{bot_username}")
             cbot.infinity_polling(timeout=15, long_polling_timeout=10, skip_pending=True)
@@ -888,6 +853,7 @@ def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
             print(f"[CHILD BOT RESTARTING] @{bot_username} Error: {e}")
             time.sleep(3)
 
+# Master Father Engine (Cloner)
 def run_master_bot_loop():
     global master_is_running
     while True:
@@ -904,45 +870,125 @@ def run_master_bot_loop():
 
             @master_bot.message_handler(commands=['start'])
             def m_start(msg):
-                m = types.InlineKeyboardMarkup(row_width=1)
+                m = types.InlineKeyboardMarkup(row_width=2)
                 m.add(
-                    types.InlineKeyboardButton("👑 𝗖𝗥𝗘𝗔𝗧𝗘 𝗬𝗢𝗨𝗥 𝗢𝗪𝗡 𝗕𝗢𝗧 (CYOB)", callback_data="m_cyob"),
-                    types.InlineKeyboardButton("📂 𝗠𝘆 𝗖𝗿𝗲𝗮𝘁𝗲𝗱 𝗕𝗼𝘁𝘀", callback_data="m_mybots")
+                    types.InlineKeyboardButton("💳 Balance", callback_data="u_bal"),
+                    types.InlineKeyboardButton("💰 Deposit", callback_data="u_dep")
                 )
-                master_bot.send_message(
-                    msg.chat.id,
-                    "👑 *WELCOME TO PRANAV FATHER BOT ENGINE* 👑\n\n"
-                    "Start Your Own Automated Telegram Reseller Bot in seconds!\n\n"
-                    "Click CYOB to launch your bot:",
-                    reply_markup=m,
-                    parse_mode="Markdown"
+                m.add(
+                    types.InlineKeyboardButton("🗓️ History", callback_data="u_hist"),
+                    types.InlineKeyboardButton("🛒 Order Now", callback_data="u_ord")
                 )
+                m.add(
+                    types.InlineKeyboardButton("💬 Support", callback_data="u_supp"),
+                    types.InlineKeyboardButton("👑 CYOB", callback_data="m_cyob")
+                )
+                menu_text = (
+                    "💎 MAIN MENU 💎 ~\n\n"
+                    "╔══════════════════════╗\n"
+                    "  ✨ 𝓦𝓔𝓛𝓒𝓞𝓜𝓔 ★ VIP ✨\n"
+                    "  ❄️❄️❄️❄️❄️❄️❄️❄️❄️❄️\n"
+                    "  🥶 Choose An Option Below 🎀\n"
+                    "╚══════════════════════╝"
+                )
+                master_bot.send_message(msg.chat.id, menu_text, reply_markup=m)
 
             @master_bot.callback_query_handler(func=lambda c: c.data.startswith("m_"))
             def m_calls(c):
                 uid = c.from_user.id
                 cid = c.message.chat.id
+                mid = c.message.message_id
+
                 if c.data == "m_cyob":
-                    user_states[uid] = "wait_master_token"
-                    master_bot.send_message(
-                        cid,
-                        "🤖 *Create Your Own Bot (CYOB)*\n\n"
-                        "1. Open @BotFather\n"
-                        "2. Send /newbot and create your bot\n"
-                        "3. Copy HTTP API Token and send it here in chat:",
-                        parse_mode="Markdown"
+                    cyob_box = (
+                        "👑 CREATE YOUR OWN BOT ★ PRO\n\n"
+                        "START YOUR OWN BRANDED RESELLER BUSINESS IN MINUTES.\n\n"
+                        "1️⃣ OPEN ➔ @BotFather\n"
+                        "2️⃣ SEND /newbot & FOLLOW THE STEPS\n"
+                        "3️⃣ COPY THE BOT TOKEN IT GIVES YOU\n"
+                        "4️⃣ PRESS ADD BOT AND PASTE IT HERE\n"
+                        "❄️❄️❄️❄️❄️❄️❄️❄️❄️\n"
+                        "YOUR BOT GOES LIVE INSTANTLY WITH ALL FEATURES 🖤"
                     )
+                    m = types.InlineKeyboardMarkup(row_width=2)
+                    m.add(types.InlineKeyboardButton("💛 Your Bots", callback_data="m_mybots"), types.InlineKeyboardButton("➕ Add Bot", callback_data="m_add_bot"))
+                    m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="m_start_back"))
+                    master_bot.edit_message_text(cyob_box, cid, mid, reply_markup=m)
+
+                elif c.data == "m_start_back":
+                    m_start(c.message)
+
                 elif c.data == "m_mybots":
                     conn = get_db()
                     cur = conn.cursor()
-                    cur.execute("SELECT bot_username, bot_name FROM child_bots WHERE owner_id=?", (uid,))
+                    cur.execute("SELECT bot_id, bot_username, bot_name FROM child_bots WHERE owner_id=?", (uid,))
                     bots = cur.fetchall()
                     conn.close()
-                    if bots:
-                        txt = "\n".join([f"• *{b['bot_name']}* (@{b['bot_username']})" for b in bots])
-                        master_bot.send_message(cid, f"📂 *Your Bots:*\n\n{txt}\n\nSend /admin inside your bot to open settings.", parse_mode="Markdown")
+
+                    if not bots:
+                        m = types.InlineKeyboardMarkup()
+                        m.add(types.InlineKeyboardButton("➕ Add Bot", callback_data="m_add_bot"))
+                        master_bot.edit_message_text("No active bots found. Click Add Bot to create one!", cid, mid, reply_markup=m)
                     else:
-                        master_bot.send_message(cid, "❌ No active bots found. Click CYOB to create one!")
+                        b = bots[0]
+                        txt = (
+                            "👑 YOUR CLONED BOTS\n\n"
+                            "MANAGE YOUR CLONED BOTS BELOW:\n\n"
+                            f"• 🟢 @{b['bot_username']} (ONLINE) (ID: {b['bot_id']})"
+                        )
+                        m = types.InlineKeyboardMarkup(row_width=2)
+                        m.add(types.InlineKeyboardButton("🔄 Replace Token", callback_data=f"m_rep_{b['bot_id']}"), types.InlineKeyboardButton("❌ Delete Bot", callback_data=f"m_del_{b['bot_id']}"))
+                        m.add(types.InlineKeyboardButton("🔙 Back to CYOB", callback_data="m_cyob"))
+                        master_bot.edit_message_text(txt, cid, mid, reply_markup=m)
+
+                elif c.data.startswith("m_del_"):
+                    bid = int(c.data.replace("m_del_", ""))
+                    conn = get_db()
+                    cur = conn.cursor()
+                    cur.execute("SELECT bot_username FROM child_bots WHERE bot_id=?", (bid,))
+                    b_u = cur.fetchone()["bot_username"]
+                    cur.execute("DELETE FROM child_bots WHERE bot_id=?", (bid,))
+                    conn.commit()
+                    conn.close()
+
+                    del_txt = (
+                        f"❌ BOT DELETED\n\n"
+                        f"BOT @{b_u} HAS BEEN STOPPED AND REMOVED.\n\n"
+                        "👾 YOUR CUSTOMER BALANCES, SERVICES, AND GATEWAY SETTINGS ARE SAFELY SAVED WITH YOUR ACCOUNT.\n"
+                        "IF YOU RECONNECT A NEW BOT ANYTIME, ALL YOUR DATA WILL BE AUTOMATICALLY RESTORED!"
+                    )
+                    m = types.InlineKeyboardMarkup(row_width=2)
+                    m.add(types.InlineKeyboardButton("💛 Your Bots", callback_data="m_mybots"), types.InlineKeyboardButton("👑 CYOB Menu", callback_data="m_cyob"))
+                    master_bot.edit_message_text(del_txt, cid, mid, reply_markup=m)
+
+                elif c.data == "m_add_bot":
+                    conn = get_db()
+                    cur = conn.cursor()
+                    cur.execute("SELECT COUNT(*) as cnt FROM child_bots WHERE owner_id=?", (uid,))
+                    cnt = cur.fetchone()["cnt"]
+                    conn.close()
+
+                    if cnt >= 1:
+                        lim_txt = (
+                            "╭──────────────────────────╮\n"
+                            "  ⚠️ LIMIT REACHED\n"
+                            "╰──────────────────────────╯\n\n"
+                            "⚠️ MAXIMUM 1 BOT ALLOWED PER USER\n\n"
+                            "YOU ALREADY HAVE 1 ACTIVE CLONE BOT RUNNING.\n\n"
+                            "👾 TO USE A DIFFERENT BOT, YOU CAN REPLACE YOUR BOT TOKEN OR DELETE YOUR EXISTING BOT FROM YOUR BOTS."
+                        )
+                        m = types.InlineKeyboardMarkup(row_width=1)
+                        m.add(types.InlineKeyboardButton("💛 Your Bots", callback_data="m_mybots"), types.InlineKeyboardButton("⭐ Main Menu", callback_data="m_start_back"))
+                        master_bot.edit_message_text(lim_txt, cid, mid, reply_markup=m)
+                    else:
+                        user_states[uid] = "wait_token"
+                        sub_text = (
+                            "🏆 SUBMIT TOKEN\n\n"
+                            "👾 PASTE OR FORWARD YOUR BOT TOKEN NOW"
+                        )
+                        m = types.InlineKeyboardMarkup()
+                        m.add(types.InlineKeyboardButton("🛑 CANCEL", callback_data="m_cyob"))
+                        master_bot.edit_message_text(sub_text, cid, mid, reply_markup=m)
 
             @master_bot.message_handler(func=lambda m: m.from_user.id in user_states and not m.text.startswith('/'))
             def m_token_receiver(msg):
@@ -951,11 +997,12 @@ def run_master_bot_loop():
                 state = user_states.pop(uid, None)
                 token = msg.text.strip()
 
-                if state == "wait_master_token":
+                if state == "wait_token":
+                    v_msg = master_bot.send_message(cid, "🔄 CONNECTING YOUR BOT...\n\nVALIDATING TOKEN AND INITIALIZING YOUR CLONE BOT. PLEASE WAIT A FEW MOMENTS...")
                     chk = requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=10)
                     data = chk.json()
                     if not data.get("ok"):
-                        master_bot.send_message(cid, "❌ Invalid Bot Token! Please provide a valid token from BotFather.")
+                        master_bot.edit_message_text("❌ INVALID BOT TOKEN! PLEASE PROVIDE A VALID TOKEN FROM BOTFATHER.", cid, v_msg.message_id)
                         return
 
                     bot_user = data["result"]["username"]
@@ -970,25 +1017,31 @@ def run_master_bot_loop():
                         conn.commit()
                         bot_id = cur.lastrowid
                     except sqlite3.IntegrityError:
-                        master_bot.send_message(cid, "⚠️ This bot token is already registered in the system!")
-                        conn.close()
-                        return
+                        cur.execute("UPDATE child_bots SET bot_username=?, bot_name=? WHERE bot_token_enc=?", (bot_user, bot_name, token_enc))
+                        conn.commit()
+                        cur.execute("SELECT bot_id FROM child_bots WHERE bot_token_enc=?", (token_enc,))
+                        bot_id = cur.fetchone()["bot_id"]
                     conn.close()
 
                     t = threading.Thread(target=run_child_bot_loop, args=(bot_id, uid, token, bot_user, bot_name), daemon=True)
                     t.start()
                     bot_threads[token] = t
 
-                    master_bot.send_message(
-                        cid,
-                        f"🎉 *Your Bot is Live Now!*\n\n"
-                        f"🤖 Bot: @{bot_user}\n"
-                        f"👑 Owner: `{uid}`\n\n"
-                        f"Open @{bot_user} and send **/admin** to publish services and set payment!",
-                        parse_mode="Markdown"
+                    live_text = (
+                        "╭──────────────────────────╮\n"
+                        "  🚀 BOT IS LIVE\n"
+                        "╰──────────────────────────╯\n\n"
+                        f"🤖 @{bot_user}\n\n"
+                        f"👾 YOU ARE THE OWNER, SEND /admin IN YOUR BOT\n"
+                        "👾 ADD SERVICES AND SET YOUR PRICES THERE\n"
+                        "👾 KEEP BALANCE HERE, ORDERS ON YOUR BOT ARE CHARGED FROM IT"
                     )
+                    m = types.InlineKeyboardMarkup(row_width=1)
+                    m.add(types.InlineKeyboardButton("Open My Bot", url=f"https://t.me/{bot_user}"))
+                    m.add(types.InlineKeyboardButton("Main Menu", callback_data="m_start_back"))
+                    master_bot.edit_message_text(live_text, cid, v_msg.message_id, reply_markup=m)
 
-            print("[MASTER BOT] Polling started successfully...")
+            print("[MASTER BOT] Polling started...")
             master_is_running = True
             master_bot.infinity_polling(timeout=15, long_polling_timeout=10, skip_pending=True)
         except Exception as e:
@@ -999,9 +1052,7 @@ def run_master_bot_loop():
 def self_ping_keepalive():
     while True:
         try:
-            # 1. Local ping
             requests.get(f"http://127.0.0.1:{RENDER_PORT}/", timeout=5)
-            # 2. External Render domain ping if configured
             if RENDER_EXTERNAL_URL:
                 url = RENDER_EXTERNAL_URL.rstrip('/')
                 if not url.startswith("http"):
@@ -1031,7 +1082,6 @@ def watchdog_and_keepalive():
                         bot_threads[token] = t
                 except Exception:
                     pass
-
         except Exception as e:
             print(f"[WATCHDOG ERROR] {e}")
 
