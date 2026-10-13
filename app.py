@@ -11,6 +11,7 @@ from telebot import types
 from cryptography.fernet import Fernet
 
 RENDER_PORT = int(os.environ.get("PORT", 8081))
+RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "").strip()
 MASTER_BOT_TOKEN = os.environ.get("MASTER_BOT_TOKEN", "").strip()
 SUPER_ADMIN_ID = int(os.environ.get("ADMIN_ID", "8585055903"))
 
@@ -179,7 +180,10 @@ def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
     while True:
         try:
             cbot = telebot.TeleBot(token, threaded=True)
-            requests.get(f"https://api.telegram.org/bot{token}/deleteWebhook?drop_pending_updates=True", timeout=5)
+            try:
+                requests.get(f"https://api.telegram.org/bot{token}/deleteWebhook?drop_pending_updates=True", timeout=5)
+            except Exception:
+                pass
 
             def get_user_main_menu():
                 m = types.InlineKeyboardMarkup(row_width=2)
@@ -505,7 +509,7 @@ def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
                         " 4️⃣ 𝗣𝗔𝗦𝗧𝗘 𝗜𝗧 𝗜𝗡 𝗠𝗔𝗦𝗧𝗘𝗥 𝗕𝗢𝗧\n"
                         " ❄️❄️❄️❄️❄️❄️❄️❄️❄️\n"
                         " 𝗬𝗢𝗨𝗥 𝗕𝗢𝗧 𝗚𝗢𝗘𝗦 𝗟𝗜𝗩𝗘 𝗜𝗡𝗦𝗧𝗔𝗡𝗧𝗟𝗬 🖤\n"
-                        "╰━━━━━━━━━━━━━━━━━━━╯"
+                        "╰━━━━━━━━━━━━━━━━━━╯"
                     )
                     cbot.edit_message_text(cyob_box, cid, call.message.message_id, reply_markup=m, parse_mode="Markdown")
 
@@ -893,7 +897,10 @@ def run_master_bot_loop():
                 continue
 
             master_bot = telebot.TeleBot(MASTER_BOT_TOKEN, threaded=True)
-            requests.get(f"https://api.telegram.org/bot{MASTER_BOT_TOKEN}/deleteWebhook?drop_pending_updates=True", timeout=5)
+            try:
+                requests.get(f"https://api.telegram.org/bot{MASTER_BOT_TOKEN}/deleteWebhook?drop_pending_updates=True", timeout=5)
+            except Exception:
+                pass
 
             @master_bot.message_handler(commands=['start'])
             def m_start(msg):
@@ -989,6 +996,21 @@ def run_master_bot_loop():
             master_is_running = False
             time.sleep(3)
 
+def self_ping_keepalive():
+    while True:
+        try:
+            # 1. Local ping
+            requests.get(f"http://127.0.0.1:{RENDER_PORT}/", timeout=5)
+            # 2. External Render domain ping if configured
+            if RENDER_EXTERNAL_URL:
+                url = RENDER_EXTERNAL_URL.rstrip('/')
+                if not url.startswith("http"):
+                    url = f"https://{url}"
+                requests.get(url, timeout=10)
+        except Exception:
+            pass
+        time.sleep(150)
+
 def watchdog_and_keepalive():
     time.sleep(5)
     while True:
@@ -1010,10 +1032,6 @@ def watchdog_and_keepalive():
                 except Exception:
                     pass
 
-            try:
-                requests.get(f"http://127.0.0.1:{RENDER_PORT}/", timeout=5)
-            except Exception:
-                pass
         except Exception as e:
             print(f"[WATCHDOG ERROR] {e}")
 
@@ -1021,6 +1039,7 @@ def watchdog_and_keepalive():
 
 threading.Thread(target=run_master_bot_loop, daemon=True).start()
 threading.Thread(target=watchdog_and_keepalive, daemon=True).start()
+threading.Thread(target=self_ping_keepalive, daemon=True).start()
 
 @app.route('/')
 def home():
@@ -1033,4 +1052,3 @@ def home():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=RENDER_PORT, use_reloader=False)
-
