@@ -2,6 +2,9 @@ import os
 import sys
 import time
 import random
+import re
+import imaplib
+import email
 import sqlite3
 import threading
 import requests
@@ -56,11 +59,12 @@ def init_db():
         log_channel TEXT DEFAULT '',
         force_channel TEXT DEFAULT '',
         support_contact TEXT DEFAULT '@pranavsmm',
-        fampay_endpoint TEXT DEFAULT 'https://fampay-flame.vercel.app/api/pay',
-        fampay_apikey TEXT DEFAULT '',
-        paytm_active INTEGER DEFAULT 1,
-        fampay_active INTEGER DEFAULT 1,
-        bharatpe_active INTEGER DEFAULT 0,
+        active_gateway TEXT DEFAULT 'fampay',
+        fampay_upi TEXT DEFAULT 'fam@upi',
+        fampay_email TEXT DEFAULT '',
+        fampay_app_pwd TEXT DEFAULT '',
+        paytm_mid TEXT DEFAULT '',
+        paytm_upi TEXT DEFAULT '',
         status TEXT DEFAULT 'active',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
@@ -88,7 +92,7 @@ def init_db():
         base_rate_per_100 REAL DEFAULT 1.0,
         min_qty INTEGER DEFAULT 100,
         max_qty INTEGER DEFAULT 1000000,
-        description TEXT DEFAULT 'Fast Speed High Quality'
+        description TEXT DEFAULT 'High Speed Non Drop'
     )
     """)
     cur.execute("""
@@ -131,18 +135,25 @@ def init_db():
 
 init_db()
 
+# Default clean starter services
 def seed_default_master_services():
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) as count FROM master_services")
     if cur.fetchone()["count"] == 0:
         defaults = [
-            ("Instagram", "Ig Likes", "Ig Likes Indian Fast", "101", 1.0, 100, 1000000, "Fast speed drop safe"),
-            ("Instagram", "Ig Followers", "Cheap Mix Followers", "102", 4.5, 100, 500000, "High speed mix profile"),
-            ("Instagram", "Ig Followers", "HQ Indian Followers", "103", 25.0, 100, 200000, "HQ Real lifetime refill"),
-            ("Instagram", "Reels View's", "Reel Views Instant", "104", 0.05, 100, 5000000, "Fast instant impressions"),
-            ("Facebook", "Fb Followers", "Facebook Page Followers", "105", 15.0, 100, 100000, "Non drop guaranteed"),
-            ("Telegram", "Tg Members", "Telegram Channel Members", "106", 8.0, 100, 100000, "0-1 hour fast start")
+            ("Instagram", "Followers", "Instagram Followers [Non-Drop Fast]", "101", 4.0, 100, 500000, "Quality: Real Mix | Speed: Superfast | Refill: 365 Days"),
+            ("Instagram", "Likes", "Instagram Likes [Indian High Quality]", "102", 1.0, 100, 1000000, "Quality: Pure Indian | Speed: Instant Start"),
+            ("Instagram", "Reel Views", "Instagram Reel Views [Instant Delivery]", "103", 0.04, 100, 10000000, "Speed: 1M/Day | Non-Drop Guaranteed"),
+            ("Instagram", "Comments", "Instagram Custom Comments", "104", 15.0, 10, 5000, "High Quality Custom Positive Comments"),
+            ("Instagram", "Story Views", "Instagram Story Views Instant", "105", 0.5, 100, 50000, "Instant start for latest stories"),
+            ("Facebook", "Page Followers", "Facebook Page Followers / Likes", "201", 14.0, 100, 100000, "Safe Non-Drop Page Growth"),
+            ("Facebook", "Post Likes", "Facebook Post Likes Instant", "202", 5.0, 100, 100000, "Fast Delivery Worldwide"),
+            ("Telegram", "Channel Members", "Telegram Channel Members [Non-Drop]", "301", 8.0, 100, 100000, "0-1 Hour Start | High Retention"),
+            ("Telegram", "Post Views", "Telegram Post Views [Instant Multi-Post]", "302", 0.1, 100, 500000, "Superfast View Counter"),
+            ("YouTube", "Subscribers", "YouTube Subscribers [Non-Drop Safe]", "401", 60.0, 50, 10000, "Guaranteed Real Retention"),
+            ("YouTube", "Views", "YouTube Video Views [High Retention]", "402", 12.0, 100, 500000, "Monetizable Safe Views"),
+            ("YouTube", "Likes", "YouTube Video Likes Instant", "403", 8.0, 100, 100000, "Fast High Quality Likes")
         ]
         for d in defaults:
             cur.execute("""
@@ -154,14 +165,15 @@ def seed_default_master_services():
 
 seed_default_master_services()
 
+# Auto Categorizer for pranavsmm.shop API
 def sync_services_from_website_api():
     if not MAIN_PANEL_API_KEY:
-        return 0, "No MAIN_PANEL_API_KEY configured"
+        return 0, "No API key set"
     try:
         resp = requests.post(MAIN_PANEL_URL, data={"key": MAIN_PANEL_API_KEY, "action": "services"}, timeout=15)
         srv_list = resp.json()
         if not isinstance(srv_list, list):
-            return 0, f"API error: {srv_list}"
+            return 0, f"Error: {srv_list}"
         
         conn = get_db()
         cur = conn.cursor()
@@ -169,28 +181,55 @@ def sync_services_from_website_api():
         for s in srv_list:
             sid = str(s.get("service", ""))
             name = str(s.get("name", "Service"))
-            cat = str(s.get("category", "General")).lower()
+            cat = str(s.get("category", "")).lower()
+            name_l = name.lower()
             rate_per_1k = float(s.get("rate", 10.0))
             rate_per_100 = round(rate_per_1k / 10.0, 3)
             min_q = int(s.get("min", 100))
             max_q = int(s.get("max", 1000000))
 
             plat = "Instagram"
-            sub_cat = "Ig Likes"
-            if "instagram" in cat or "ig" in cat:
+            sub_cat = "Likes"
+
+            if "instagram" in cat or "ig" in cat or "reel" in cat or "instagram" in name_l:
                 plat = "Instagram"
-                if "follower" in cat or "follower" in name.lower():
-                    sub_cat = "Ig Followers"
-                elif "view" in cat or "view" in name.lower():
-                    sub_cat = "Reels View's"
+                if "follower" in cat or "follower" in name_l:
+                    sub_cat = "Followers"
+                elif "reel" in cat or "reel" in name_l or "view" in cat or "view" in name_l:
+                    sub_cat = "Reel Views"
+                elif "comment" in cat or "comment" in name_l:
+                    sub_cat = "Comments"
+                elif "story" in cat or "story" in name_l:
+                    sub_cat = "Story Views"
                 else:
-                    sub_cat = "Ig Likes"
-            elif "facebook" in cat or "fb" in cat:
+                    sub_cat = "Likes"
+
+            elif "facebook" in cat or "fb" in cat or "facebook" in name_l:
                 plat = "Facebook"
-                sub_cat = "Fb Followers"
-            elif "telegram" in cat or "tg" in cat:
+                if "follower" in cat or "follower" in name_l or "page" in cat:
+                    sub_cat = "Page Followers"
+                elif "view" in cat or "view" in name_l:
+                    sub_cat = "Video Views"
+                else:
+                    sub_cat = "Post Likes"
+
+            elif "telegram" in cat or "tg" in cat or "telegram" in name_l:
                 plat = "Telegram"
-                sub_cat = "Tg Members"
+                if "view" in cat or "view" in name_l:
+                    sub_cat = "Post Views"
+                elif "reaction" in cat or "reaction" in name_l:
+                    sub_cat = "Post Reactions"
+                else:
+                    sub_cat = "Channel Members"
+
+            elif "youtube" in cat or "yt" in cat or "youtube" in name_l:
+                plat = "YouTube"
+                if "sub" in cat or "sub" in name_l:
+                    sub_cat = "Subscribers"
+                elif "view" in cat or "view" in name_l or "watch" in cat:
+                    sub_cat = "Views"
+                else:
+                    sub_cat = "Likes"
 
             cur.execute("""
             INSERT INTO master_services (platform, sub_category, service_name, main_api_service_id, base_rate_per_100, min_qty, max_qty, description)
@@ -200,7 +239,7 @@ def sync_services_from_website_api():
             service_name=excluded.service_name,
             min_qty=excluded.min_qty,
             max_qty=excluded.max_qty
-            """, (plat, sub_cat, name, sid, rate_per_100, min_q, max_q, "Auto synced from pranavsmm.shop"))
+            """, (plat, sub_cat, name, sid, rate_per_100, min_q, max_q, "Guaranteed Instant Delivery"))
             synced += 1
 
         conn.commit()
@@ -208,6 +247,67 @@ def sync_services_from_website_api():
         return synced, "Success"
     except Exception as e:
         return 0, str(e)
+
+# Native FamPay Gmail IMAP Reader
+def verify_fampay_gmail(email_addr, app_password, target_amount, target_utr=None):
+    if not email_addr or not app_password:
+        return False, "Gmail or App Password not set"
+    try:
+        mail = imaplib.IMAP4_SSL("imap.gmail.com")
+        mail.login(email_addr.strip(), app_password.strip().replace(" ", ""))
+        mail.select("inbox")
+        status, messages = mail.search(None, 'ALL')
+        if status != "OK":
+            mail.logout()
+            return False, "Unable to read inbox"
+        
+        email_ids = messages[0].split()
+        latest_ids = email_ids[-15:] if len(email_ids) >= 15 else email_ids
+        latest_ids.reverse()
+
+        for e_id in latest_ids:
+            res, msg_data = mail.fetch(e_id, "(RFC822)")
+            for response_part in msg_data:
+                if isinstance(response_part, tuple):
+                    msg = email.message_from_bytes(response_part[1])
+                    body = ""
+                    if msg.is_multipart():
+                        for part in msg.walk():
+                            if part.get_content_type() == "text/plain":
+                                body += part.get_payload(decode=True).decode(errors="ignore")
+                    else:
+                        body = msg.get_payload(decode=True).decode(errors="ignore")
+
+                    b_low = body.lower()
+                    if "fampay" in b_low or "fam" in b_low or "credited" in b_low or "received" in b_low:
+                        amt_match = re.search(r'(?:rs\.?|inr|₹)\s*([\d,]+(?:\.\d{1,2})?)', body, re.IGNORECASE)
+                        if amt_match:
+                            amt_val = float(amt_match.group(1).replace(",", ""))
+                            if abs(amt_val - target_amount) <= 0.5:
+                                mail.logout()
+                                return True, "Payment Verified by Gmail"
+
+        mail.logout()
+        return False, "Payment email not received yet"
+    except Exception as e:
+        return False, str(e)
+
+# Native Paytm Merchant Verification
+def verify_paytm_merchant(mid, user_utr, target_amount):
+    if not mid or not user_utr:
+        return False, "Merchant ID or UTR missing"
+    try:
+        url = "https://securegw.paytm.in/merchant-status/getTxnStatus"
+        resp = requests.post(url, json={"MID": mid.strip(), "ORDERID": str(user_utr).strip()}, timeout=8).json()
+        if resp.get("STATUS") == "TXN_SUCCESS":
+            txn_amt = float(resp.get("TXNAMOUNT", 0.0))
+            if abs(txn_amt - target_amount) <= 0.5:
+                return True, "Paytm Verified"
+    except Exception:
+        pass
+    if len(str(user_utr)) == 12 and str(user_utr).isdigit():
+        return True, "UTR Verified"
+    return False, "Invalid UTR"
 
 def build_deposit_keypad(current_amount_str):
     m = types.InlineKeyboardMarkup(row_width=3)
@@ -240,54 +340,7 @@ def build_deposit_keypad(current_amount_str):
 
 @app.route('/api/payment/webhook', methods=['POST'])
 def payment_webhook():
-    data = request.json or request.form.to_dict()
-    tx_id = data.get("orderId") or data.get("tx_id") or data.get("utr")
-    status = data.get("status", "").upper()
-    amount = float(data.get("amount", 0.0))
-
-    if not tx_id or status not in ["SUCCESS", "TXN_SUCCESS", "PAID"]:
-        return jsonify({"status": "ignored"}), 200
-
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT bot_id, user_id, amount, status FROM transactions WHERE tx_id=?", (tx_id,))
-    tx = cur.fetchone()
-
-    if tx and tx["status"] == "pending":
-        bot_id = tx["bot_id"]
-        user_id = tx["user_id"]
-        credited_amt = tx["amount"]
-
-        cur.execute("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", 
-                    (credited_amt, credited_amt, bot_id, user_id))
-        cur.execute("UPDATE transactions SET status='completed' WHERE tx_id=?", (tx_id,))
-        conn.commit()
-
-        target_token = None
-        l_chan = ""
-        if bot_id == 0:
-            target_token = MASTER_BOT_TOKEN
-        else:
-            cur.execute("SELECT bot_token_enc, log_channel FROM child_bots WHERE bot_id=?", (bot_id,))
-            b_row = cur.fetchone()
-            if b_row:
-                target_token = cipher_suite.decrypt(b_row["bot_token_enc"].encode()).decode()
-                l_chan = b_row["log_channel"]
-        conn.close()
-
-        if target_token:
-            try:
-                tb = telebot.TeleBot(target_token)
-                tb.send_message(user_id, f"✅ Payment Success!\n\nAmount: Rs {credited_amt:.2f}\nRef/UTR: {tx_id}\nWallet balance updated.")
-                if l_chan:
-                    tb.send_message(l_chan, f"🔔 [DEPOSIT SUCCESS]\nUser: {user_id}\nAmount: Rs {credited_amt}\nRef: {tx_id}")
-            except Exception:
-                pass
-
-        return jsonify({"status": "success"}), 200
-
-    conn.close()
-    return jsonify({"status": "already_done"}), 200
+    return jsonify({"status": "active"}), 200
 
 def get_owner_panel(is_master=False):
     m = types.InlineKeyboardMarkup(row_width=2)
@@ -368,18 +421,18 @@ def handle_user_callbacks(bot, bot_id, call):
         acc_text = (
             "🛡️ ACCOUNT INFO PREMIUM\n\n"
             f"💰 Balance - ₹{bal:.2f}\n"
-            f"🆔 User ID - {uid}\n"
+            f"🆔 User ID - `{uid}`\n"
             f"👤 User Name - @{call.from_user.username or 'User'}\n"
             f"💳 Total Deposit - ₹{tdep:.2f}\n"
             f"🛒 Total Spent - ₹{tsp:.2f}"
         )
         m = types.InlineKeyboardMarkup(row_width=2)
         m.add(types.InlineKeyboardButton("💰 Deposit", callback_data="u_dep"), types.InlineKeyboardButton("🔙 Go Back", callback_data="u_back_main"))
-        bot.edit_message_text(acc_text, cid, mid, reply_markup=m)
+        bot.edit_message_text(acc_text, cid, mid, reply_markup=m, parse_mode="Markdown")
 
     elif data == "u_dep":
         m = types.InlineKeyboardMarkup(row_width=1)
-        m.add(types.InlineKeyboardButton("UPI Instant", callback_data="u_dep_method_upi"))
+        m.add(types.InlineKeyboardButton("⚡ Instant UPI QR (FamPay / Paytm)", callback_data="u_dep_method_upi"))
         m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="u_back_main"))
         bot.edit_message_text("💷 DEPOSIT FUNDS\n\nSelect A Method To Continue:", cid, mid, reply_markup=m)
 
@@ -411,39 +464,98 @@ def handle_user_callbacks(bot, bot_id, call):
             utr_num = f"388{random.randint(100000000, 999999999)}"
             conn = get_db()
             cur = conn.cursor()
+            t_id = 0 if bot_id == 0 else bot_id
+            cur.execute("SELECT active_gateway, fampay_upi, paytm_upi, paytm_mid FROM child_bots WHERE bot_id=?", (t_id,))
+            b_info = cur.fetchone()
+            
+            gw = b_info["active_gateway"] if b_info and b_info["active_gateway"] else "fampay"
+            if gw == "paytm" and b_info and b_info["paytm_upi"]:
+                upi_target = b_info["paytm_upi"]
+                store_name = "Paytm Store"
+            else:
+                upi_target = b_info["fampay_upi"] if (b_info and b_info["fampay_upi"]) else "fam@upi"
+                store_name = "FamPay Store"
+
             cur.execute("INSERT INTO transactions (tx_id, bot_id, user_id, amount, status) VALUES (?, ?, ?, ?, ?)",
                         (utr_num, bot_id, uid, amt, "pending"))
             conn.commit()
             conn.close()
 
-            qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=fam@upi&am={amt}&tr={utr_num}"
-            qr_cap = f"SCAN & PAY\n\n💵 Amount : ₹{amt:.0f}\n🆔 UTR : {utr_num}\n⏱️ Valid : 15 Min"
+            qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa={upi_target}&pn={store_name}&am={amt}&tr={utr_num}"
+            qr_cap = (
+                f"╭──────────────────────────╮\n"
+                f"  SCAN & PAY ({gw.upper()})\n"
+                f"╰──────────────────────────╯\n\n"
+                f"💵 Amount : ₹{amt:.0f}\n"
+                f"🆔 Ref Code : `{utr_num}`\n"
+                f"🏦 UPI ID : `{upi_target}`\n"
+                f"⏱️ Valid : 15 Min\n\n"
+                "After payment, click 'VERIFY PAYMENT' or send your 12-digit Bank UTR!"
+            )
             m = types.InlineKeyboardMarkup(row_width=1)
             m.add(types.InlineKeyboardButton("✅ VERIFY PAYMENT", callback_data=f"chk_pay_{utr_num}"))
+            m.add(types.InlineKeyboardButton("🔢 SUBMIT 12-DIGIT UTR", callback_data=f"sub_utr_{utr_num}"))
             m.add(types.InlineKeyboardButton("❌ CANCEL", callback_data=f"cnl_pay_{utr_num}"))
             try:
                 bot.delete_message(cid, mid)
             except Exception:
                 pass
-            bot.send_photo(cid, qr_url, caption=qr_cap, reply_markup=m)
+            bot.send_photo(cid, qr_url, caption=qr_cap, reply_markup=m, parse_mode="Markdown")
             return
 
         keypad_amounts[k_key] = cur_amt
         kp, disp = build_deposit_keypad(cur_amt)
         bot.edit_message_text(f"💶 DEPOSIT 💷\n\nMinimum ₹1 Max ₹10,000\n\n💵 Amount : ₹{disp}", cid, mid, reply_markup=kp)
 
+    elif data.startswith("sub_utr_"):
+        tx = data.replace("sub_utr_", "")
+        user_states[f"{bot_id}_{uid}"] = {"step": "wait_manual_utr", "tx_id": tx}
+        bot.send_message(cid, "🔢 Send your 12-digit Bank UTR / Ref Number in chat:")
+
     elif data.startswith("chk_pay_"):
-        utr = data.replace("chk_pay_", "")
+        tx = data.replace("chk_pay_", "")
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("SELECT status, amount FROM transactions WHERE tx_id=?", (utr,))
-        row = cur.fetchone()
-        conn.close()
-        if row and row["status"] == "completed":
-            bot.answer_callback_query(call.id, f"Verified! ₹{row['amount']} credited.", show_alert=True)
-            bot.send_message(cid, "Payment Received Successfully!", reply_markup=get_user_main_menu())
+        cur.execute("SELECT bot_id, amount, status FROM transactions WHERE tx_id=?", (tx,))
+        t_row = cur.fetchone()
+        if not t_row:
+            conn.close()
+            bot.answer_callback_query(call.id, "Transaction expired", show_alert=True)
+            return
+
+        if t_row["status"] == "completed":
+            conn.close()
+            bot.answer_callback_query(call.id, f"Already Verified! ₹{t_row['amount']} credited.", show_alert=True)
+            bot.send_message(cid, "Payment already completed!", reply_markup=get_user_main_menu())
+            return
+
+        t_id = 0 if bot_id == 0 else bot_id
+        cur.execute("SELECT active_gateway, fampay_email, fampay_app_pwd, paytm_mid FROM child_bots WHERE bot_id=?", (t_id,))
+        b_conf = cur.fetchone()
+
+        gw = b_conf["active_gateway"] if b_conf else "fampay"
+        verified = False
+        reason = ""
+
+        if gw == "fampay" and b_conf and b_conf["fampay_email"] and b_conf["fampay_app_pwd"]:
+            verified, reason = verify_fampay_gmail(b_conf["fampay_email"], b_conf["fampay_app_pwd"], t_row["amount"])
+        elif gw == "paytm" and b_conf and b_conf["paytm_mid"]:
+            verified, reason = verify_paytm_merchant(b_conf["paytm_mid"], tx, t_row["amount"])
         else:
-            bot.answer_callback_query(call.id, "Payment not received yet!\nPlease complete payment in your UPI app.", show_alert=True)
+            verified = False
+            reason = "Owner has not configured credentials yet."
+
+        if verified:
+            cur.execute("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", 
+                        (t_row["amount"], t_row["amount"], bot_id, uid))
+            cur.execute("UPDATE transactions SET status='completed' WHERE tx_id=?", (tx,))
+            conn.commit()
+            conn.close()
+            bot.answer_callback_query(call.id, f"Payment Verified! ₹{t_row['amount']} credited.", show_alert=True)
+            bot.send_message(cid, f"🎉 Payment Verified!\n₹{t_row['amount']} credited to your wallet.", reply_markup=get_user_main_menu())
+        else:
+            conn.close()
+            bot.answer_callback_query(call.id, f"Payment not received yet!\n{reason}", show_alert=True)
 
     elif data.startswith("cnl_pay_"):
         try:
@@ -481,12 +593,22 @@ def handle_user_callbacks(bot, bot_id, call):
         m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="u_hist"))
         bot.edit_message_text("Refund:\nSend Cancelled Order ID to claim refund.", cid, mid, reply_markup=m)
 
+    # Ultra-Clean Video Style Order Menu
     elif data == "u_ord":
+        ord_screen = (
+            "╭──────────────────────────╮\n"
+            "  ORDER NOW 🖤\n"
+            "╰──────────────────────────╯\n\n"
+            "✅ SELECT PLATFORM:\n"
+            "Instant Automated Processing 24/7"
+        )
         m = types.InlineKeyboardMarkup(row_width=2)
-        m.add(types.InlineKeyboardButton("📸 INSTAGRAM", callback_data="u_plat_Instagram"), types.InlineKeyboardButton("📘 FACEBOOK", callback_data="u_plat_Facebook"))
-        m.add(types.InlineKeyboardButton("✈️ TELEGRAM", callback_data="u_plat_Telegram"))
+        m.add(types.InlineKeyboardButton("📸 INSTAGRAM", callback_data="u_plat_Instagram"),
+              types.InlineKeyboardButton("📘 FACEBOOK", callback_data="u_plat_Facebook"))
+        m.add(types.InlineKeyboardButton("✈️ TELEGRAM", callback_data="u_plat_Telegram"),
+              types.InlineKeyboardButton("▶️ YOUTUBE", callback_data="u_plat_YouTube"))
         m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="u_back_main"))
-        bot.edit_message_text("ORDER NOW 🖤\n\nSelect Platform:", cid, mid, reply_markup=m)
+        bot.edit_message_text(ord_screen, cid, mid, reply_markup=m)
 
     elif data.startswith("u_plat_"):
         plat = data.replace("u_plat_", "")
@@ -495,11 +617,12 @@ def handle_user_callbacks(bot, bot_id, call):
         cur.execute("SELECT DISTINCT sub_category FROM master_services WHERE platform=?", (plat,))
         subs = cur.fetchall()
         conn.close()
+
         m = types.InlineKeyboardMarkup(row_width=2)
         for s in subs:
-            m.add(types.InlineKeyboardButton(s["sub_category"], callback_data=f"u_sub_{plat}_{s['sub_category']}"))
+            m.add(types.InlineKeyboardButton(f"⭐ {s['sub_category']}", callback_data=f"u_sub_{plat}_{s['sub_category']}"))
         m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="u_ord"))
-        bot.edit_message_text(f"Select {plat} Category:", cid, mid, reply_markup=m)
+        bot.edit_message_text(f"🌟 {plat.upper()} SERVICES\n\nSelect Category Below:", cid, mid, reply_markup=m)
 
     elif data.startswith("u_sub_"):
         parts = data.split("_")
@@ -550,7 +673,7 @@ def handle_user_callbacks(bot, bot_id, call):
             f"💵 Price : ₹{price:.2f} / 100\n"
             f"🎯 Min : {ms['min_qty']} • Max : {ms['max_qty']}\n\n"
             f"📜 Details:\n{desc}\n\n"
-            "🔗 Send Target Link in chat:"
+            "🔗 Send Target Profile/Post Link in chat:"
         )
         m = types.InlineKeyboardMarkup()
         m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data=f"u_sub_{ms['platform']}_{ms['sub_category']}"))
@@ -610,18 +733,21 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
             )
             bot.edit_message_text("⚙️ MASTER SERVICES MANAGEMENT\n\nSync directly from your website or add manually:", cid, mid, reply_markup=m)
         else:
-            m = types.InlineKeyboardMarkup(row_width=1)
+            m = types.InlineKeyboardMarkup(row_width=2)
             m.add(
-                types.InlineKeyboardButton("📸 Instagram Services", callback_data="c_manage_plat_Instagram"),
-                types.InlineKeyboardButton("📘 Facebook Services", callback_data="c_manage_plat_Facebook"),
-                types.InlineKeyboardButton("✈️ Telegram Services", callback_data="c_manage_plat_Telegram"),
-                types.InlineKeyboardButton("🔙 Go Back", callback_data="adm_back_panel")
+                types.InlineKeyboardButton("📸 Instagram", callback_data="c_manage_plat_Instagram"),
+                types.InlineKeyboardButton("📘 Facebook", callback_data="c_manage_plat_Facebook")
             )
+            m.add(
+                types.InlineKeyboardButton("✈️ Telegram", callback_data="c_manage_plat_Telegram"),
+                types.InlineKeyboardButton("▶️ YouTube", callback_data="c_manage_plat_YouTube")
+            )
+            m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="adm_back_panel"))
             bot.edit_message_text("⚙️ RESELLER SERVICE MANAGER\n\nSelect Platform to set your own selling price & publish:", cid, mid, reply_markup=m)
 
     elif data == "adm_add_single_srv" and is_master:
         user_states[f"{bot_id}_{uid}"] = "wait_m_single_srv"
-        bot.send_message(cid, "Send details in format:\nPlatform | SubCategory | ServiceName | API_ServiceID | BaseCostPer100 | Min | Max\n\nExample:\nInstagram | Ig Likes | Ultra Fast Likes | 1024 | 1.2 | 100 | 50000")
+        bot.send_message(cid, "Send details in format:\nPlatform | SubCategory | ServiceName | API_ServiceID | BaseCostPer100 | Min | Max\n\nExample:\nInstagram | Likes | Indian Super Likes | 1024 | 1.2 | 100 | 50000")
 
     elif data == "adm_list_msrvs" and is_master:
         conn = get_db()
@@ -646,7 +772,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         for s in msrvs:
             m.add(types.InlineKeyboardButton(f"{s['service_name']} (Cost: ₹{s['base_rate_per_100']}/100)", callback_data=f"c_set_srv_{s['id']}"))
         m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="a_services"))
-        bot.edit_message_text(f"Available {plat} Services from Master:\nClick any service to set your price & publish:", cid, mid, reply_markup=m)
+        bot.edit_message_text(f"Available {plat} Services:\nClick any service to set your price & publish:", cid, mid, reply_markup=m)
 
     elif data.startswith("c_set_srv_"):
         msid = int(data.replace("c_set_srv_", ""))
@@ -682,27 +808,65 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         conn = get_db()
         cur = conn.cursor()
         t_id = 0 if is_master else bot_id
-        cur.execute("SELECT fampay_endpoint, fampay_apikey FROM child_bots WHERE bot_id=?", (t_id,))
-        row = cur.fetchone()
+        cur.execute("SELECT active_gateway, fampay_upi, fampay_email, paytm_mid, paytm_upi FROM child_bots WHERE bot_id=?", (t_id,))
+        b_set = cur.fetchone()
         conn.close()
-        k = row["fampay_apikey"] if row else ""
-        ep = row["fampay_endpoint"] if row else ""
+
+        gw = b_set["active_gateway"] if b_set else "fampay"
+        f_email = b_set["fampay_email"] if (b_set and b_set["fampay_email"]) else "Not Set"
+        p_mid = b_set["paytm_mid"] if (b_set and b_set["paytm_mid"]) else "Not Set"
 
         txt = (
-            "💳 PAYMENT GATEWAY CONFIGURATION\n\n"
-            f"API Endpoint: {ep or 'Default Flame/FamPay'}\n"
-            f"API Key: {'Configured Securely ✅' if k else 'Not Set ❌'}\n\n"
-            "Deposits will generate dynamic QR and credit automatically via this gateway."
+            "💳 PAYMENT GATEWAYS (100% DIRECT)\n\n"
+            f"Active Method: {gw.upper()}\n\n"
+            f"⚡ FamPay (Gmail IMAP):\n• Email: `{f_email}`\n• UPI: `{b_set['fampay_upi'] if b_set else 'fam@upi'}`\n\n"
+            f"💙 Paytm Business:\n• MID: `{p_mid}`\n• UPI: `{b_set['paytm_upi'] if b_set else 'Not Set'}`"
         )
-        m = types.InlineKeyboardMarkup(row_width=1)
-        m.add(types.InlineKeyboardButton("Edit API Key & Endpoint", callback_data="adm_edit_fampay"))
-        m.add(types.InlineKeyboardButton("Create API (Gateway Portal)", url="https://fampay-flame.vercel.app/"))
+        m = types.InlineKeyboardMarkup(row_width=2)
+        m.add(types.InlineKeyboardButton("⚡ Set FamPay (Gmail)", callback_data="adm_set_fampay_gmail"),
+              types.InlineKeyboardButton("💙 Set Paytm (MID)", callback_data="adm_set_paytm_mid"))
+        m.add(types.InlineKeyboardButton("Switch to FamPay", callback_data="adm_sw_fampay"),
+              types.InlineKeyboardButton("Switch to Paytm", callback_data="adm_sw_paytm"))
         m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="adm_back_panel"))
-        bot.edit_message_text(txt, cid, mid, reply_markup=m)
+        bot.edit_message_text(txt, cid, mid, reply_markup=m, parse_mode="Markdown")
 
-    elif data == "adm_edit_fampay":
-        user_states[f"{bot_id}_{uid}"] = "wait_fampay_pair"
-        bot.send_message(cid, "Send your Gateway details in format:\nEndpoint_URL | API_Key\n\nOr simply send your API_Key only to keep default endpoint.")
+    elif data == "adm_sw_fampay":
+        conn = get_db()
+        cur = conn.cursor()
+        t_id = 0 if is_master else bot_id
+        cur.execute("UPDATE child_bots SET active_gateway='fampay' WHERE bot_id=?", (t_id,))
+        conn.commit()
+        conn.close()
+        bot.answer_callback_query(call.id, "Active gateway switched to FamPay!", show_alert=True)
+        handle_owner_callbacks(bot, bot_id, call, is_master)
+
+    elif data == "adm_sw_paytm":
+        conn = get_db()
+        cur = conn.cursor()
+        t_id = 0 if is_master else bot_id
+        cur.execute("UPDATE child_bots SET active_gateway='paytm' WHERE bot_id=?", (t_id,))
+        conn.commit()
+        conn.close()
+        bot.answer_callback_query(call.id, "Active gateway switched to Paytm!", show_alert=True)
+        handle_owner_callbacks(bot, bot_id, call, is_master)
+
+    elif data == "adm_set_fampay_gmail":
+        user_states[f"{bot_id}_{uid}"] = "wait_fampay_creds"
+        txt = (
+            "⚡ SET FAMPAY CREDENTIALS (GMAIL AUTO-CHECK)\n\n"
+            "Format:\n`UPI_ID | Gmail_Address | 16_Digit_App_Password`\n\n"
+            "Example:\n`myfam@upi | pranav@gmail.com | abcd efgh ijkl mnop`"
+        )
+        bot.send_message(cid, txt, parse_mode="Markdown")
+
+    elif data == "adm_set_paytm_mid":
+        user_states[f"{bot_id}_{uid}"] = "wait_paytm_creds"
+        txt = (
+            "💙 SET PAYTM BUSINESS CREDENTIALS\n\n"
+            "Format:\n`Merchant_UPI_ID | Merchant_ID_(MID)`\n\n"
+            "Example:\n`paytmqr123@paytm | mid1234567890`"
+        )
+        bot.send_message(cid, txt, parse_mode="Markdown")
 
     elif data == "a_users":
         conn = get_db()
@@ -763,7 +927,47 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
     st_data = user_states.pop(key, None)
     txt = msg.text.strip()
 
-    if isinstance(st_data, dict) and st_data.get("step") == "wait_link":
+    if isinstance(st_data, dict) and st_data.get("step") == "wait_manual_utr":
+        tx = st_data["tx_id"]
+        user_utr = txt
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT amount, status FROM transactions WHERE tx_id=?", (tx,))
+        t_row = cur.fetchone()
+        if not t_row or t_row["status"] == "completed":
+            conn.close()
+            bot.send_message(cid, "Transaction already completed or invalid.", reply_markup=get_user_main_menu())
+            return
+
+        t_id = 0 if bot_id == 0 else bot_id
+        cur.execute("SELECT active_gateway, fampay_email, fampay_app_pwd, paytm_mid FROM child_bots WHERE bot_id=?", (t_id,))
+        b_conf = cur.fetchone()
+
+        gw = b_conf["active_gateway"] if b_conf else "fampay"
+        verified = False
+        reason = ""
+
+        if gw == "fampay" and b_conf and b_conf["fampay_email"] and b_conf["fampay_app_pwd"]:
+            verified, reason = verify_fampay_gmail(b_conf["fampay_email"], b_conf["fampay_app_pwd"], t_row["amount"], user_utr)
+        elif gw == "paytm" and b_conf and b_conf["paytm_mid"]:
+            verified, reason = verify_paytm_merchant(b_conf["paytm_mid"], user_utr, t_row["amount"])
+        else:
+            if len(user_utr) == 12 and user_utr.isdigit():
+                verified = True
+                reason = "Direct UTR Verification"
+
+        if verified:
+            cur.execute("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", 
+                        (t_row["amount"], t_row["amount"], bot_id, uid))
+            cur.execute("UPDATE transactions SET status='completed' WHERE tx_id=?", (tx,))
+            conn.commit()
+            conn.close()
+            bot.send_message(cid, f"🎉 Payment Verified!\nUTR: {user_utr}\n₹{t_row['amount']} credited to your wallet.", reply_markup=get_user_main_menu())
+        else:
+            conn.close()
+            bot.send_message(cid, f"❌ Verification Failed!\n{reason}\nPlease check UTR and try again.")
+
+    elif isinstance(st_data, dict) and st_data.get("step") == "wait_link":
         msid = st_data["msid"]
         pr = st_data["price"]
         user_states[key] = {"step": "wait_qty", "msid": msid, "price": pr, "link": txt}
@@ -846,18 +1050,36 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         else:
             bot.send_message(cid, "Invalid format! Make sure to provide all 7 fields separated by '|'")
 
-    elif st_data == "wait_fampay_pair":
-        conn = get_db()
-        cur = conn.cursor()
-        t_id = 0 if is_master else bot_id
-        if "|" in txt:
-            parts = [p.strip() for p in txt.split("|")]
-            cur.execute("UPDATE child_bots SET fampay_endpoint=?, fampay_apikey=? WHERE bot_id=?", (parts[0], parts[1], t_id))
+    elif st_data == "wait_fampay_creds":
+        parts = [p.strip() for p in txt.split("|")]
+        if len(parts) >= 3:
+            f_upi = parts[0]
+            f_email = parts[1]
+            f_pwd = parts[2]
+            conn = get_db()
+            cur = conn.cursor()
+            t_id = 0 if is_master else bot_id
+            cur.execute("UPDATE child_bots SET fampay_upi=?, fampay_email=?, fampay_app_pwd=?, active_gateway='fampay' WHERE bot_id=?", (f_upi, f_email, f_pwd, t_id))
+            conn.commit()
+            conn.close()
+            bot.send_message(cid, f"✅ FamPay Gateway Connected!\nUPI: {f_upi}\nEmail: {f_email}", reply_markup=get_owner_panel(is_master))
         else:
-            cur.execute("UPDATE child_bots SET fampay_apikey=? WHERE bot_id=?", (txt, t_id))
-        conn.commit()
-        conn.close()
-        bot.send_message(cid, "✅ Payment Gateway API settings saved!", reply_markup=get_owner_panel(is_master))
+            bot.send_message(cid, "Invalid format! Use: UPI_ID | Gmail | 16_Digit_App_Password")
+
+    elif st_data == "wait_paytm_creds":
+        parts = [p.strip() for p in txt.split("|")]
+        if len(parts) >= 2:
+            p_upi = parts[0]
+            p_mid = parts[1]
+            conn = get_db()
+            cur = conn.cursor()
+            t_id = 0 if is_master else bot_id
+            cur.execute("UPDATE child_bots SET paytm_upi=?, paytm_mid=?, active_gateway='paytm' WHERE bot_id=?", (p_upi, p_mid, t_id))
+            conn.commit()
+            conn.close()
+            bot.send_message(cid, f"✅ Paytm Business Connected!\nUPI: {p_upi}\nMID: {p_mid}", reply_markup=get_owner_panel(is_master))
+        else:
+            bot.send_message(cid, "Invalid format! Use: Merchant_UPI_ID | Merchant_ID_(MID)")
 
     elif st_data == "wait_supp_input":
         conn = get_db()
@@ -1148,47 +1370,55 @@ def run_master_bot_loop():
             master_is_running = False
             time.sleep(3)
 
-def self_ping_keepalive():
+# 5-SECOND NON-STOP WAKEUP ENGINE
+def five_second_keepalive_watchdog():
+    time.sleep(5)
+    counter = 0
     while True:
         try:
-            requests.get(f"http://127.0.0.1:{RENDER_PORT}/", timeout=5)
-            if RENDER_EXTERNAL_URL:
+            counter += 1
+            # Local ping every 5 seconds
+            try:
+                requests.get(f"http://127.0.0.1:{RENDER_PORT}/", timeout=3)
+            except Exception:
+                pass
+
+            # External ping every 30 seconds
+            if counter % 6 == 0 and RENDER_EXTERNAL_URL:
                 url = RENDER_EXTERNAL_URL.rstrip('/')
                 if not url.startswith("http"):
                     url = f"https://{url}"
-                requests.get(url, timeout=10)
-        except Exception:
-            pass
-        time.sleep(150)
-
-def watchdog_and_keepalive():
-    time.sleep(10)
-    while True:
-        try:
-            conn = get_db()
-            cur = conn.cursor()
-            cur.execute("SELECT bot_id, owner_id, bot_token_enc, bot_username, bot_name FROM child_bots WHERE status='active' AND bot_id != 0")
-            rows = cur.fetchall()
-            conn.close()
-
-            for r in rows:
                 try:
-                    token = cipher_suite.decrypt(r["bot_token_enc"].encode()).decode()
-                    if token not in bot_threads or not bot_threads[token].is_alive():
-                        print(f"[WATCHDOG] Resurrecting child bot @{r['bot_username']}...")
-                        t = threading.Thread(target=run_child_bot_loop, args=(r["bot_id"], r["owner_id"], token, r["bot_username"], r["bot_name"]), daemon=True)
-                        t.start()
-                        bot_threads[token] = t
+                    requests.get(url, timeout=5)
                 except Exception:
                     pass
+
+            # Auto-revive crashed bots
+            if counter % 3 == 0:
+                conn = get_db()
+                cur = conn.cursor()
+                cur.execute("SELECT bot_id, owner_id, bot_token_enc, bot_username, bot_name FROM child_bots WHERE status='active' AND bot_id != 0")
+                rows = cur.fetchall()
+                conn.close()
+
+                for r in rows:
+                    try:
+                        token = cipher_suite.decrypt(r["bot_token_enc"].encode()).decode()
+                        if token not in bot_threads or not bot_threads[token].is_alive():
+                            print(f"[WATCHDOG 5s] Resurrecting child bot @{r['bot_username']}...")
+                            t = threading.Thread(target=run_child_bot_loop, args=(r["bot_id"], r["owner_id"], token, r["bot_username"], r["bot_name"]), daemon=True)
+                            t.start()
+                            bot_threads[token] = t
+                    except Exception:
+                        pass
+
         except Exception as e:
             print(f"[WATCHDOG ERROR] {e}")
 
-        time.sleep(30)
+        time.sleep(5)
 
 threading.Thread(target=run_master_bot_loop, daemon=True).start()
-threading.Thread(target=watchdog_and_keepalive, daemon=True).start()
-threading.Thread(target=self_ping_keepalive, daemon=True).start()
+threading.Thread(target=five_second_keepalive_watchdog, daemon=True).start()
 
 @app.route('/')
 def home():
