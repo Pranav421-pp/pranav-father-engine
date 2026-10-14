@@ -58,7 +58,7 @@ def init_db():
         log_channel TEXT DEFAULT '',
         force_channel TEXT DEFAULT '',
         support_wa TEXT DEFAULT '',
-        support_tg TEXT DEFAULT '',
+        support_tg TEXT DEFAULT '@pranavsmm',
         active_gateway TEXT DEFAULT 'fampay',
         fampay_upi TEXT DEFAULT 'pranav12013@fam',
         fampay_email TEXT DEFAULT 'pranavpatel95334@gmail.com',
@@ -82,7 +82,6 @@ def init_db():
     )
     """)
 
-    # Dynamic Pricing Config table for License Keys
     cur.execute("""
     CREATE TABLE IF NOT EXISTS key_pricing (
         duration_days INTEGER PRIMARY KEY,
@@ -159,7 +158,6 @@ def init_db():
     )
     """)
     
-    # Initialize default admin prices if empty
     cur.execute("SELECT COUNT(*) as cnt FROM key_pricing")
     if cur.fetchone()["cnt"] == 0:
         cur.executemany("INSERT INTO key_pricing (duration_days, price, label) VALUES (?, ?, ?)", [
@@ -170,7 +168,6 @@ def init_db():
             (36500, 1999.0, "👑 Lifetime Access")
         ])
 
-    # Lifetime Master Bot Setup
     future_date = (datetime.datetime.now() + datetime.timedelta(days=36500)).strftime("%Y-%m-%d %H:%M:%S")
     cur.execute("""
     INSERT INTO child_bots (bot_id, owner_id, bot_username, fampay_upi, fampay_email, fampay_app_pwd, paytm_upi, support_tg, active_gateway, is_licensed, subscription_expiry)
@@ -607,7 +604,6 @@ def handle_user_callbacks(bot, bot_id, call):
             bot.answer_callback_query(call.id, "Already Verified!", show_alert=True)
             return
 
-        # Check via master gateway credentials
         cur.execute("SELECT active_gateway, fampay_email, fampay_app_pwd, paytm_mid FROM child_bots WHERE bot_id=0")
         b_conf = cur.fetchone()
 
@@ -626,7 +622,6 @@ def handle_user_callbacks(bot, bot_id, call):
         if verified:
             cur.execute("UPDATE transactions SET status='completed' WHERE tx_id=?", (tx,))
             
-            # If transaction is for buying a license key
             if t_row["tx_type"] == "buy_key":
                 days = t_row["target_days"]
                 key_code = generate_license_key(duration_days=days)
@@ -871,7 +866,6 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         count, msg = sync_services_from_website_api()
         bot.send_message(cid, f"🔄 API Live Sync Finished!\n\nImported/Updated: {count} verified services with live costs\nStatus: {msg}", reply_markup=get_owner_panel(is_master))
 
-    # Master Manage Pricing
     elif data == "adm_set_pricing_menu" and is_master:
         conn = get_db()
         cur = conn.cursor()
@@ -893,7 +887,6 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         user_states[f"{bot_id}_{uid}"] = {"step": "wait_new_key_price", "days": days}
         bot.send_message(cid, f"Send new price in Rupees for {days} days (e.g. `99` or `199`):")
 
-    # Master Key Generation Menu
     elif data == "adm_choose_key_duration" and is_master:
         txt = "🎟️ 𝗚𝗘𝗡𝗘𝗥𝗔𝗧𝗘 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬\n\nChoose duration:"
         m = types.InlineKeyboardMarkup(row_width=2)
@@ -932,7 +925,6 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         m.add(types.InlineKeyboardButton("🔙 Back to Key Generator", callback_data="adm_choose_key_duration"))
         bot.send_message(cid, txt, parse_mode="Markdown", reply_markup=m)
 
-    # Automated Key Purchase for Child Bot Owners
     elif data == "c_buy_key_menu":
         conn = get_db()
         cur = conn.cursor()
@@ -957,7 +949,6 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         cur.execute("SELECT price, label FROM key_pricing WHERE duration_days=?", (days,))
         p_row = cur.fetchone()
         
-        # Get Master payment receiver details
         cur.execute("SELECT fampay_upi, paytm_upi, active_gateway FROM child_bots WHERE bot_id=0")
         m_bot = cur.fetchone()
 
@@ -1708,7 +1699,7 @@ def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
             cbot.infinity_polling(timeout=20, long_polling_timeout=15, skip_pending=True)
         except Exception as e:
             print(f"[CHILD BOT RESTARTING] @{bot_username} Error: {e}")
-            time.sleep(3)
+            time.sleep(2)
 
 def run_master_bot_loop():
     global master_is_running
@@ -1828,10 +1819,14 @@ def run_master_bot_loop():
                 if st_data == "wait_token":
                     user_states.pop(key, None)
                     v_msg = master_bot.send_message(cid, "🔄 Connecting your bot... Validating token...")
-                    chk = requests.get(f"https://api.telegram.org/bot{txt}/getMe", timeout=10)
-                    data = chk.json()
+                    try:
+                        chk = requests.get(f"https://api.telegram.org/bot{txt}/getMe", timeout=12)
+                        data = chk.json()
+                    except Exception:
+                        data = {}
+
                     if not data.get("ok"):
-                        master_bot.edit_message_text("❌ Invalid Bot Token! Please provide a valid token from BotFather.", cid, v_msg.message_id)
+                        master_bot.edit_message_text("❌ Invalid Bot Token! Please provide a valid token from @BotFather.", cid, v_msg.message_id)
                         return
 
                     bot_user = data["result"]["username"]
@@ -1841,12 +1836,14 @@ def run_master_bot_loop():
                     conn = get_db()
                     cur = conn.cursor()
                     try:
-                        cur.execute("INSERT INTO child_bots (owner_id, bot_token_enc, bot_username, bot_name, support_tg, is_licensed) VALUES (?, ?, ?, ?, '@pranavsmm', 0)",
-                                    (uid, token_enc, bot_user, bot_name))
+                        cur.execute("""
+                        INSERT INTO child_bots (owner_id, bot_token_enc, bot_username, bot_name, support_tg, is_licensed, status)
+                        VALUES (?, ?, ?, ?, '@pranavsmm', 0, 'active')
+                        """, (uid, token_enc, bot_user, bot_name))
                         conn.commit()
                         bot_id = cur.lastrowid
                     except sqlite3.IntegrityError:
-                        cur.execute("UPDATE child_bots SET bot_username=?, bot_name=? WHERE bot_token_enc=?", (bot_user, bot_name, token_enc))
+                        cur.execute("UPDATE child_bots SET bot_username=?, bot_name=?, status='active' WHERE bot_token_enc=?", (bot_user, bot_name, token_enc))
                         conn.commit()
                         cur.execute("SELECT bot_id FROM child_bots WHERE bot_token_enc=?", (token_enc,))
                         bot_id = cur.fetchone()["bot_id"]
@@ -1859,11 +1856,11 @@ def run_master_bot_loop():
                     live_text = (
                         f"🚀 𝗕𝗢𝗧 𝗜𝗦 𝗟𝗜𝗩𝗘!\n\n"
                         f"🤖 @{bot_user}\n\n"
-                        "⚠️ *Note:* Payment Gateway is currently locked. Send /admin inside your bot and purchase or enter a License Key to unlock automated payments!"
+                        "Open your bot and send /admin to configure services and payment!"
                     )
                     m = types.InlineKeyboardMarkup()
                     m.add(types.InlineKeyboardButton("Open Bot", url=f"https://t.me/{bot_user}"))
-                    master_bot.edit_message_text(live_text, cid, v_msg.message_id, reply_markup=m, parse_mode="Markdown")
+                    master_bot.edit_message_text(live_text, cid, v_msg.message_id, reply_markup=m)
                 else:
                     handle_text_inputs(master_bot, 0, msg, is_master=True)
 
@@ -1873,20 +1870,24 @@ def run_master_bot_loop():
         except Exception as e:
             print(f"[MASTER BOT RESTARTING] Error: {e}")
             master_is_running = False
-            time.sleep(3)
+            time.sleep(2)
 
-def background_autoverify_and_keepalive():
+# 5-SECOND NON-STOP WAKEUP ENGINE
+def five_second_keepalive_engine():
     time.sleep(5)
-    counter = 0
+    pulse_counter = 0
     while True:
         try:
-            counter += 1
+            pulse_counter += 1
+            
+            # 1. Local Internal Ping every 5 seconds
             try:
                 requests.get(f"http://127.0.0.1:{RENDER_PORT}/", timeout=3)
             except Exception:
                 pass
 
-            if counter % 6 == 0 and RENDER_EXTERNAL_URL:
+            # 2. Render External Domain Ping every 30 seconds
+            if pulse_counter % 6 == 0 and RENDER_EXTERNAL_URL:
                 url = RENDER_EXTERNAL_URL.rstrip('/')
                 if not url.startswith("http"):
                     url = f"https://{url}"
@@ -1895,15 +1896,14 @@ def background_autoverify_and_keepalive():
                 except Exception:
                     pass
 
-            # Auto-Verify Pending Transactions in background
-            if counter % 2 == 0:
+            # 3. Auto-Verify Pending Transactions in background
+            if pulse_counter % 2 == 0:
                 conn = get_db()
                 cur = conn.cursor()
                 cur.execute("SELECT tx_id, bot_id, user_id, amount, tx_type, target_days FROM transactions WHERE status='pending' LIMIT 5")
                 pending_txs = cur.fetchall()
                 for p in pending_txs:
                     t_id = 0 if p["bot_id"] == 0 else p["bot_id"]
-                    
                     cur.execute("SELECT active_gateway, fampay_email, fampay_app_pwd, paytm_mid FROM child_bots WHERE bot_id=0")
                     b_conf = cur.fetchone()
                     if b_conf and b_conf["active_gateway"] == "fampay" and b_conf["fampay_email"] and b_conf["fampay_app_pwd"]:
@@ -1917,7 +1917,7 @@ def background_autoverify_and_keepalive():
                                 try:
                                     tb = telebot.TeleBot(MASTER_BOT_TOKEN)
                                     dur_str = "👑 Lifetime" if days >= 30000 else f"{days} Days"
-                                    tb.send_message(p["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗨𝗧𝗢-𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n\nHere is your Key:\n`{key_code}`\nValidity: {dur_str}\n\nEnter it in your `/admin` ➔ License to activate!", parse_mode="Markdown")
+                                    tb.send_message(p["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗨𝗧𝗢-𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n\nHere is your Key:\n`{key_code}`\nValidity: {dur_str}\n\nEnter it in `/admin` ➔ License to activate!", parse_mode="Markdown")
                                 except Exception:
                                     pass
                             else:
@@ -1926,8 +1926,8 @@ def background_autoverify_and_keepalive():
                             conn.commit()
                 conn.close()
 
-            # Revive crashed bot threads
-            if counter % 3 == 0:
+            # 4. Watchdog: Auto-Revive Crashed Bot Threads
+            if pulse_counter % 3 == 0:
                 conn = get_db()
                 cur = conn.cursor()
                 cur.execute("SELECT bot_id, owner_id, bot_token_enc, bot_username, bot_name FROM child_bots WHERE status='active' AND bot_id != 0")
@@ -1946,18 +1946,19 @@ def background_autoverify_and_keepalive():
                         pass
 
         except Exception as e:
-            print(f"[WATCHDOG ERROR] {e}")
+            print(f"[5-SECOND WATCHDOG ERROR] {e}")
 
         time.sleep(5)
 
 threading.Thread(target=run_master_bot_loop, daemon=True).start()
-threading.Thread(target=background_autoverify_and_keepalive, daemon=True).start()
+threading.Thread(target=five_second_keepalive_engine, daemon=True).start()
 
 @app.route('/')
 def home():
     return jsonify({
         "status": "online",
         "engine": "Pranav Father Dev Master Engine",
+        "pulse_mode": "5-second active self-ping",
         "master_live": master_is_running,
         "child_bots_alive": len([t for t in bot_threads.values() if t.is_alive()])
     }), 200
