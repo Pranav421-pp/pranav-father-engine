@@ -55,13 +55,14 @@ def init_db():
         pro_mode INTEGER DEFAULT 1,
         log_channel TEXT DEFAULT '',
         force_channel TEXT DEFAULT '',
-        support_contact TEXT DEFAULT '@pranavsmm',
+        support_wa TEXT DEFAULT '',
+        support_tg TEXT DEFAULT '',
         active_gateway TEXT DEFAULT 'fampay',
         fampay_upi TEXT DEFAULT 'pranav12013@fam',
         fampay_email TEXT DEFAULT 'pranavpatel95334@gmail.com',
         fampay_app_pwd TEXT DEFAULT 'mtcvmhwysaaxrivf',
         paytm_mid TEXT DEFAULT '',
-        paytm_upi TEXT DEFAULT '',
+        paytm_upi TEXT DEFAULT 'paytm.s2xzkgu@pty',
         status TEXT DEFAULT 'active',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
@@ -89,7 +90,7 @@ def init_db():
         base_rate_per_100 REAL DEFAULT 1.0,
         min_qty INTEGER DEFAULT 100,
         max_qty INTEGER DEFAULT 1000000,
-        description TEXT DEFAULT 'High Speed Non Drop'
+        description TEXT DEFAULT 'Live Fast Speed Non Drop'
     )
     """)
     cur.execute("""
@@ -129,54 +130,28 @@ def init_db():
     """)
     # Permanent Master Bot Row 0 setup
     cur.execute("""
-    INSERT INTO child_bots (bot_id, owner_id, bot_username, fampay_upi, fampay_email, fampay_app_pwd, active_gateway)
-    VALUES (0, 8585055903, 'PranavFatherBot', 'pranav12013@fam', 'pranavpatel95334@gmail.com', 'mtcvmhwysaaxrivf', 'fampay')
+    INSERT INTO child_bots (bot_id, owner_id, bot_username, fampay_upi, fampay_email, fampay_app_pwd, paytm_upi, support_tg, active_gateway)
+    VALUES (0, 8585055903, 'PranavFatherBot', 'pranav12013@fam', 'pranavpatel95334@gmail.com', 'mtcvmhwysaaxrivf', 'paytm.s2xzkgu@pty', '@pranavsmm', 'fampay')
     ON CONFLICT(bot_id) DO UPDATE SET
     owner_id=8585055903,
     fampay_upi=CASE WHEN fampay_upi='' THEN 'pranav12013@fam' ELSE fampay_upi END,
-    fampay_email=CASE WHEN fampay_email='' THEN 'pranavpatel95334@gmail.com' ELSE fampay_email END
+    fampay_email=CASE WHEN fampay_email='' THEN 'pranavpatel95334@gmail.com' ELSE fampay_email END,
+    paytm_upi=CASE WHEN paytm_upi='' THEN 'paytm.s2xzkgu@pty' ELSE paytm_upi END
     """)
     conn.commit()
     conn.close()
 
 init_db()
 
-# Seed Clean Matching Services
-def seed_default_master_services():
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) as count FROM master_services")
-    if cur.fetchone()["count"] == 0:
-        defaults = [
-            ("Instagram", "Ig Followers", "🛒 Cheap Followers", "101", 4.5, 100, 1000000, "QUALITY ~ GOOD QUALITY\nSPEED ~ FAST INSTANT\nDATA ~ PROFILE + 2 POST\nDROP ~ HIGH DROP POSSIBLE\nREFILL ~ NO REFILL"),
-            ("Instagram", "Ig Followers", "🛒 Ig Followers Hq 🫧", "102", 24.0, 100, 500000, "QUALITY ~ 100% REAL HUMANS\nSPEED ~ SUPERFAST\nDROP ~ NO DROPS GUARANTEED\nREFILL ~ LIFETIME REFILL"),
-            ("Instagram", "Ig Likes", "💖 Indian Likes [Max 10k]", "103", 1.8, 100, 1000000, "QUALITY ~ 100% REAL MIX INDIAN\nSPEED ~ INSTANT 100K/DAY\nDROP ~ NO DROP\nREFILL ~ 365 DAYS"),
-            ("Instagram", "Reels View's", "👀 Reel Views Instant", "104", 0.05, 100, 10000000, "QUALITY ~ SUPERFAST HIGH SPEED\nSPEED ~ INSTANT START\nDROP ~ NON DROP"),
-            ("Instagram", "Post View's", "👓 Post Impressions & Reach", "105", 0.1, 100, 5000000, "QUALITY ~ INSTANT REAL IMPRESSIONS\nSPEED ~ FAST DELIVERY"),
-            ("Facebook", "Page Followers", "🛒 Facebook Page Followers", "201", 14.0, 100, 100000, "SAFE NON DROP HIGH RETENTION"),
-            ("Facebook", "Post Likes", "👍 Facebook Post Likes", "202", 5.0, 100, 100000, "FAST DELIVERY WORLDWIDE"),
-            ("Telegram", "Channel Members", "🛒 Telegram Channel Members", "301", 8.0, 100, 100000, "0-1 HOUR FAST START NON DROP"),
-            ("Telegram", "Post Views", "👀 Telegram Post Views", "302", 0.1, 100, 500000, "SUPERFAST MULTI-POST VIEW COUNTER")
-        ]
-        for d in defaults:
-            cur.execute("""
-            INSERT OR IGNORE INTO master_services (platform, sub_category, service_name, main_api_service_id, base_rate_per_100, min_qty, max_qty, description)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, d)
-        conn.commit()
-    conn.close()
-
-seed_default_master_services()
-
-# Auto Categorizer for pranavsmm.shop API
+# LIVE API Sync directly from pranavsmm.shop
 def sync_services_from_website_api():
     if not MAIN_PANEL_API_KEY:
-        return 0, "No API key configured"
+        return 0, "MAIN_PANEL_API_KEY missing in environment variables"
     try:
         resp = requests.post(MAIN_PANEL_URL, data={"key": MAIN_PANEL_API_KEY, "action": "services"}, timeout=15)
         srv_list = resp.json()
         if not isinstance(srv_list, list):
-            return 0, f"Error: {srv_list}"
+            return 0, f"Error from pranavsmm.shop: {srv_list}"
         
         conn = get_db()
         cur = conn.cursor()
@@ -187,11 +162,12 @@ def sync_services_from_website_api():
             cat = str(s.get("category", "")).lower()
             name_l = name.lower()
 
+            # Skip junk/spam
             if "coin" in cat or "market" in cat or "shopee" in cat or "traffic" in cat:
                 continue
 
             rate_per_1k = float(s.get("rate", 10.0))
-            rate_per_100 = round(rate_per_1k / 10.0, 3)
+            live_cost_per_100 = round(rate_per_1k / 10.0, 3)
             min_q = int(s.get("min", 100))
             max_q = int(s.get("max", 1000000))
 
@@ -232,7 +208,7 @@ def sync_services_from_website_api():
                 service_name=excluded.service_name,
                 min_qty=excluded.min_qty,
                 max_qty=excluded.max_qty
-                """, (plat, sub_cat, f"🛒 {name}", sid, rate_per_100, min_q, max_q, "QUALITY ~ GOOD QUALITY\nSPEED ~ FAST INSTANT\nREFILL ~ GUARANTEED"))
+                """, (plat, sub_cat, f"🛒 {name}", sid, live_cost_per_100, min_q, max_q, "QUALITY ~ 100% REAL & VERIFIED\nSPEED ~ FAST INSTANT DELIVERY\nLIVE ~ SYNCED FROM PRANAVSMM.SHOP"))
                 synced += 1
 
         conn.commit()
@@ -240,6 +216,19 @@ def sync_services_from_website_api():
         return synced, "Success"
     except Exception as e:
         return 0, str(e)
+
+# Auto-sync live services on boot
+def auto_sync_on_boot():
+    time.sleep(3)
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) as cnt FROM master_services")
+    c = cur.fetchone()["cnt"]
+    conn.close()
+    if c == 0:
+        sync_services_from_website_api()
+
+threading.Thread(target=auto_sync_on_boot, daemon=True).start()
 
 # Native FamPay Gmail IMAP Reader
 def verify_fampay_gmail(email_addr, app_password, target_amount, target_utr=None):
@@ -361,7 +350,7 @@ def get_owner_panel(is_master=False):
         types.InlineKeyboardButton("Turn On Pro Mode", callback_data="a_promode")
     )
     if is_master:
-        m.add(types.InlineKeyboardButton("🔄 Sync pranavsmm.shop API", callback_data="adm_sync_api"))
+        m.add(types.InlineKeyboardButton("🔄 Sync Live pranavsmm.shop Rates", callback_data="adm_sync_api"))
     m.add(types.InlineKeyboardButton("Main Menu", callback_data="a_back_main"))
     return m
 
@@ -461,8 +450,8 @@ def handle_user_callbacks(bot, bot_id, call):
             b_info = cur.fetchone()
             
             gw = b_info["active_gateway"] if b_info and b_info["active_gateway"] else "fampay"
-            if gw == "paytm" and b_info and b_info["paytm_upi"]:
-                upi_target = b_info["paytm_upi"]
+            if gw == "paytm":
+                upi_target = b_info["paytm_upi"] if (b_info and b_info["paytm_upi"]) else "paytm.s2xzkgu@pty"
                 store_name = "Paytm Store"
             else:
                 upi_target = b_info["fampay_upi"] if (b_info and b_info["fampay_upi"]) else "pranav12013@fam"
@@ -669,7 +658,7 @@ def handle_user_callbacks(bot, bot_id, call):
         m = types.InlineKeyboardMarkup(row_width=1)
         if srvs:
             for s in srvs:
-                m.add(types.InlineKeyboardButton(f"{s['service_name']}", callback_data=f"u_viewsrv_{s['id']}"))
+                m.add(types.InlineKeyboardButton(f"{s['service_name']} (₹{s['price']}/100)", callback_data=f"u_viewsrv_{s['id']}"))
         m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data=f"u_plat_{plat}"))
         bot.edit_message_text(cat_title, cid, mid, reply_markup=m)
 
@@ -697,7 +686,7 @@ def handle_user_callbacks(bot, bot_id, call):
             "╔═══════════════════════════════════╗\n"
             f"  {ms['service_name'].upper()}\n"
             "╚═══════════════════════════════════╝\n\n"
-            f"💱 𝗣𝗥𝗜𝗖𝗘 : ₹{price:.1f} / 100\n"
+            f"💱 𝗣𝗥𝗜𝗖𝗘 : ₹{price:.3f} / 100\n"
             f"🌟 𝗠𝗜𝗡 : {ms['min_qty']}  •  𝗠𝗔𝗫 : {ms['max_qty']}\n\n"
             f"🌟 𝗗𝗘𝗧𝗔𝗜𝗟𝗦\n"
             "─────────────────────────────\n"
@@ -709,26 +698,31 @@ def handle_user_callbacks(bot, bot_id, call):
         m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data=f"u_sub_{ms['platform']}_{ms['sub_category']}"))
         bot.edit_message_text(card_text, cid, mid, reply_markup=m)
 
-    # EXACT WHATSAPP SUPPORT (SCREENSHOT 7060 / 7061 COPY)
+    # FULLY DYNAMIC DUAL SUPPORT SYSTEM (WHATSAPP + TELEGRAM)
     elif data == "u_supp":
         conn = get_db()
         cur = conn.cursor()
-        if bot_id == 0:
-            supp = "@pranavsmm"
-        else:
-            cur.execute("SELECT support_contact FROM child_bots WHERE bot_id=?", (bot_id,))
-            supp = cur.fetchone()["support_contact"] or "@pranavsmm"
+        t_id = 0 if bot_id == 0 else bot_id
+        cur.execute("SELECT support_wa, support_tg FROM child_bots WHERE bot_id=?", (t_id,))
+        s_row = cur.fetchone()
         conn.close()
-        supp_url = f"https://wa.me/{supp.replace('+', '')}" if supp.isdigit() else f"https://t.me/{supp.replace('@', '')}"
+
+        wa = s_row["support_wa"] if s_row and s_row["support_wa"] else ""
+        tg = s_row["support_tg"] if s_row and s_row["support_tg"] else "@pranavsmm"
 
         supp_box = (
             "╭──────────────────────────╮\n"
-            "  🔥 𝗪𝗛𝗔𝗧𝗦𝗔𝗣𝗣 𝗦𝗨𝗣𝗣𝗢𝗥𝗧\n"
+            "  🔥 𝗖𝗨𝗦𝗧𝗢𝗠𝗘𝗥 𝗦𝗨𝗣𝗣𝗢𝗥𝗧\n"
             "╰──────────────────────────╯\n\n"
             "𝗢𝗨𝗥 𝗧𝗘𝗔𝗠 𝗜𝗦 𝗔𝗩𝗔𝗜𝗟𝗔𝗕𝗟𝗘 𝗧𝗢 𝗔𝗦𝗦𝗜𝗦𝗧 𝗬𝗢𝗨 𝗪𝗜𝗧𝗛 𝗢𝗥𝗗𝗘𝗥𝗦, 𝗗𝗘𝗣𝗢𝗦𝗜𝗧𝗦, 𝗔𝗡𝗗 𝗔𝗡𝗬 𝗦𝗘𝗥𝗩𝗜𝗖𝗘 𝗤𝗨𝗘𝗥𝗜𝗘𝗦. 🔯"
         )
         m = types.InlineKeyboardMarkup(row_width=1)
-        m.add(types.InlineKeyboardButton("🟢 CONTACT SUPPORT ↗️", url=supp_url))
+        if wa:
+            wa_clean = wa.replace("+", "").replace(" ", "")
+            m.add(types.InlineKeyboardButton("🟢 WHATSAPP SUPPORT ↗️", url=f"https://wa.me/{wa_clean}"))
+        if tg:
+            tg_clean = tg.replace("@", "").replace(" ", "")
+            m.add(types.InlineKeyboardButton("✈️ TELEGRAM SUPPORT ↗️", url=f"https://t.me/{tg_clean}"))
         m.add(types.InlineKeyboardButton("🔙 BACK", callback_data="u_back_main"))
         bot.edit_message_text(supp_box, cid, mid, reply_markup=m)
 
@@ -760,20 +754,20 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         bot.edit_message_text("👑 Owner Panel", cid, mid, reply_markup=get_owner_panel(is_master))
 
     elif data == "adm_sync_api" and is_master:
-        bot.answer_callback_query(call.id, "Syncing clean categories from pranavsmm.shop...", show_alert=False)
+        bot.answer_callback_query(call.id, "Syncing clean live rates from pranavsmm.shop...", show_alert=False)
         count, msg = sync_services_from_website_api()
-        bot.send_message(cid, f"🔄 API Sync Finished!\n\nImported/Updated: {count} verified services\nStatus: {msg}", reply_markup=get_owner_panel(is_master))
+        bot.send_message(cid, f"🔄 API Live Sync Finished!\n\nImported/Updated: {count} verified services with live costs\nStatus: {msg}", reply_markup=get_owner_panel(is_master))
 
     elif data == "a_services":
         if is_master:
             m = types.InlineKeyboardMarkup(row_width=1)
             m.add(
-                types.InlineKeyboardButton("🔄 Sync from pranavsmm.shop API", callback_data="adm_sync_api"),
+                types.InlineKeyboardButton("🔄 Sync Live pranavsmm.shop Rates", callback_data="adm_sync_api"),
                 types.InlineKeyboardButton("➕ Add Single Service Manually", callback_data="adm_add_single_srv"),
                 types.InlineKeyboardButton("📋 View All Master Services", callback_data="adm_list_msrvs"),
                 types.InlineKeyboardButton("🔙 GO BACK", callback_data="adm_back_panel")
             )
-            bot.edit_message_text("⚙️ MASTER SERVICES MANAGEMENT\n\nSync directly from website:", cid, mid, reply_markup=m)
+            bot.edit_message_text("⚙️ MASTER SERVICES MANAGEMENT\n\nSync live rates directly from website:", cid, mid, reply_markup=m)
         else:
             m = types.InlineKeyboardMarkup(row_width=2)
             m.add(
@@ -799,7 +793,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         txt = "\n".join([f"#{r['id']} [{r['platform']}] {r['service_name']} (ID:{r['main_api_service_id']}) - ₹{r['base_rate_per_100']}/100" for r in rows]) if rows else "No services in master DB."
         m = types.InlineKeyboardMarkup()
         m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="a_services"))
-        bot.send_message(cid, f"Master Services (Clean View):\n\n{txt}", reply_markup=m)
+        bot.send_message(cid, f"Master Services (Live Cost View):\n\n{txt}", reply_markup=m)
 
     elif data.startswith("c_manage_plat_"):
         plat = data.replace("c_manage_plat_", "")
@@ -825,12 +819,12 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         cs = cur.fetchone()
         conn.close()
 
-        cur_sell = cs["selling_price_per_100"] if cs else ms["base_rate_per_100"] * 2.0
+        cur_sell = cs["selling_price_per_100"] if cs else round(ms["base_rate_per_100"] * 1.5, 2)
         st = "🟢 Published" if (cs and cs["is_published"] == 1) else "🔴 Not Published"
 
         txt = (
             f"📦 {ms['service_name'].upper()}\n\n"
-            f"💵 Master Cost: ₹{ms['base_rate_per_100']:.2f} per 100\n"
+            f"💵 Master Cost: ₹{ms['base_rate_per_100']:.3f} per 100 (Live Website Rate)\n"
             f"💰 Your Selling Price: ₹{cur_sell:.2f} per 100\n"
             f"📊 Status: {st}\n\n"
             f"{ms['description']}"
@@ -843,7 +837,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
     elif data.startswith("c_pub_"):
         msid = int(data.replace("c_pub_", ""))
         user_states[f"{bot_id}_{uid}"] = {"step": "wait_resell_price", "msid": msid}
-        bot.send_message(cid, "How much rupees do you want to sell per 100? (e.g. 4.5 or 8):")
+        bot.send_message(cid, "How much rupees do you want to sell per 100? (Enter amount higher than cost):")
 
     elif data == "a_payment":
         conn = get_db()
@@ -854,10 +848,10 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         conn.close()
 
         gw = b_set["active_gateway"] if b_set else "fampay"
-        f_email = b_set["fampay_email"] if (b_set and b_set["fampay_email"]) else "Not Set"
-        f_upi = b_set["fampay_upi"] if (b_set and b_set["fampay_upi"]) else "Not Set"
+        f_email = b_set["fampay_email"] if (b_set and b_set["fampay_email"]) else "pranavpatel95334@gmail.com"
+        f_upi = b_set["fampay_upi"] if (b_set and b_set["fampay_upi"]) else "pranav12013@fam"
         p_mid = b_set["paytm_mid"] if (b_set and b_set["paytm_mid"]) else "Not Set"
-        p_upi = b_set["paytm_upi"] if (b_set and b_set["paytm_upi"]) else "Not Set"
+        p_upi = b_set["paytm_upi"] if (b_set and b_set["paytm_upi"]) else "paytm.s2xzkgu@pty"
 
         txt = (
             "💳 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗚𝗔𝗧𝗘𝗪𝗔𝗬 𝗖𝗢𝗡𝗙𝗜𝗚\n\n"
@@ -903,7 +897,38 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
 
     elif data == "adm_start_paytm_setup":
         user_states[f"{bot_id}_{uid}"] = {"step": "paytm_step_1_upi"}
-        bot.send_message(cid, "💙 𝗦𝘁𝗲𝗽 𝟭/𝟮: Send your Paytm Business Merchant UPI ID:", parse_mode="Markdown")
+        bot.send_message(cid, "💙 𝗦𝘁𝗲𝗽 𝟭/𝟮: Send your Paytm Business Merchant UPI ID (e.g. `paytm.s2xzkgu@pty`):", parse_mode="Markdown")
+
+    elif data == "a_suppcontact":
+        conn = get_db()
+        cur = conn.cursor()
+        t_id = 0 if is_master else bot_id
+        cur.execute("SELECT support_wa, support_tg FROM child_bots WHERE bot_id=?", (t_id,))
+        row = cur.fetchone()
+        conn.close()
+
+        wa_curr = row["support_wa"] if row and row["support_wa"] else "Not Set"
+        tg_curr = row["support_tg"] if row and row["support_tg"] else "@pranavsmm"
+
+        txt = (
+            "🎧 𝗖𝗨𝗦𝗧𝗢𝗠𝗘𝗥 𝗦𝗨𝗣𝗣𝗢𝗥𝗧 𝗦𝗘𝗧𝗧𝗜𝗡𝗚𝗦\n\n"
+            f"• 🟢 WhatsApp: `{wa_curr}`\n"
+            f"• ✈️ Telegram: `{tg_curr}`\n\n"
+            "Choose which channel you want to set for your users:"
+        )
+        m = types.InlineKeyboardMarkup(row_width=2)
+        m.add(types.InlineKeyboardButton("🟢 Set WhatsApp", callback_data="adm_set_supp_wa"),
+              types.InlineKeyboardButton("✈️ Set Telegram", callback_data="adm_set_supp_tg"))
+        m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="adm_back_panel"))
+        bot.edit_message_text(txt, cid, mid, reply_markup=m, parse_mode="Markdown")
+
+    elif data == "adm_set_supp_wa":
+        user_states[f"{bot_id}_{uid}"] = "wait_supp_wa_input"
+        bot.send_message(cid, "🟢 Send your WhatsApp Number with Country Code (e.g. `919876543210`):", parse_mode="Markdown")
+
+    elif data == "adm_set_supp_tg":
+        user_states[f"{bot_id}_{uid}"] = "wait_supp_tg_input"
+        bot.send_message(cid, "✈️ Send your Telegram Username (e.g. `@pranavsmm`):", parse_mode="Markdown")
 
     elif data == "a_users":
         conn = get_db()
@@ -939,10 +964,6 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
     elif data == "a_forcesub":
         user_states[f"{bot_id}_{uid}"] = "wait_force_sub"
         bot.send_message(cid, "Send Force Sub Channel username (e.g. @MyChannel):")
-
-    elif data == "a_suppcontact":
-        user_states[f"{bot_id}_{uid}"] = "wait_supp_input"
-        bot.send_message(cid, "Send Support Contact (WhatsApp number e.g. 919876543210 or @Username):")
 
     elif data == "a_promode":
         conn = get_db()
@@ -1016,6 +1037,24 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         conn.close()
         bot.send_message(cid, f"🎉 *Paytm Business Configured Successfully!*\n\n• UPI: `{upi}`\n• MID: `{mid}`", 
                          parse_mode="Markdown", reply_markup=get_owner_panel(is_master))
+
+    elif st_data == "wait_supp_wa_input":
+        conn = get_db()
+        cur = conn.cursor()
+        t_id = 0 if is_master else bot_id
+        cur.execute("UPDATE child_bots SET support_wa=? WHERE bot_id=?", (txt, t_id))
+        conn.commit()
+        conn.close()
+        bot.send_message(cid, f"✅ WhatsApp Support set to `{txt}`!", parse_mode="Markdown", reply_markup=get_owner_panel(is_master))
+
+    elif st_data == "wait_supp_tg_input":
+        conn = get_db()
+        cur = conn.cursor()
+        t_id = 0 if is_master else bot_id
+        cur.execute("UPDATE child_bots SET support_tg=? WHERE bot_id=?", (txt, t_id))
+        conn.commit()
+        conn.close()
+        bot.send_message(cid, f"✅ Telegram Support set to `{txt}`!", parse_mode="Markdown", reply_markup=get_owner_panel(is_master))
 
     elif isinstance(st_data, dict) and st_data.get("step") == "wait_manual_utr":
         tx = st_data["tx_id"]
@@ -1139,15 +1178,6 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
             bot.send_message(cid, f"✅ Master Service '{parts[2]}' added/updated successfully!", reply_markup=get_owner_panel(is_master))
         else:
             bot.send_message(cid, "Invalid format! Make sure to provide all 7 fields separated by '|'")
-
-    elif st_data == "wait_supp_input":
-        conn = get_db()
-        cur = conn.cursor()
-        t_id = 0 if is_master else bot_id
-        cur.execute("UPDATE child_bots SET support_contact=? WHERE bot_id=?", (txt, t_id))
-        conn.commit()
-        conn.close()
-        bot.send_message(cid, f"✅ Support contact updated to: {txt}", reply_markup=get_owner_panel(is_master))
 
     elif st_data == "wait_add_bal":
         parts = txt.split()
@@ -1400,8 +1430,8 @@ def run_master_bot_loop():
                     conn = get_db()
                     cur = conn.cursor()
                     try:
-                        cur.execute("INSERT INTO child_bots (owner_id, bot_token_enc, bot_username, bot_name, support_contact) VALUES (?, ?, ?, ?, ?)",
-                                    (uid, token_enc, bot_user, bot_name, "@pranavsmm"))
+                        cur.execute("INSERT INTO child_bots (owner_id, bot_token_enc, bot_username, bot_name, support_tg) VALUES (?, ?, ?, ?, '@pranavsmm')",
+                                    (uid, token_enc, bot_user, bot_name))
                         conn.commit()
                         bot_id = cur.lastrowid
                     except sqlite3.IntegrityError:
