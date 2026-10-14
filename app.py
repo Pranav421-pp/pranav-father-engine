@@ -3,6 +3,8 @@ import sys
 import time
 import datetime
 import random
+import string
+import secrets
 import re
 import imaplib
 import email
@@ -171,9 +173,10 @@ def init_db():
     future_date = (datetime.datetime.now() + datetime.timedelta(days=36500)).strftime("%Y-%m-%d %H:%M:%S")
     cur.execute("""
     INSERT INTO child_bots (bot_id, owner_id, bot_username, fampay_upi, fampay_email, fampay_app_pwd, paytm_upi, support_tg, active_gateway, is_licensed, subscription_expiry)
-    VALUES (0, 8585055903, 'PranavFatherBot', 'pranav12013@fam', 'pranavpatel95334@gmail.com', 'mtcvmhwysaaxrivf', 'paytm.s2xzkgu@pty', '@pranavsmm', 'fampay', 1, ?)
+    VALUES (0, 8585055903, 'PranavFatherBot', 'pranav12013@fam', 'pranavpatel95334@gmail.com', 'mtcvmhwysaaxrivf', 'paytm.s2xzkgu@pty', '@pranavsmm', 'paytm', 1, ?)
     ON CONFLICT(bot_id) DO UPDATE SET
     owner_id=8585055903,
+    paytm_upi='paytm.s2xzkgu@pty',
     is_licensed=1,
     subscription_expiry=?
     """, (future_date, future_date))
@@ -182,8 +185,12 @@ def init_db():
 
 init_db()
 
+# Cryptographic Strong BotFather-Style Key Generator
 def generate_license_key(duration_days=30):
-    k = f"PRANAV-{duration_days}D-{random.randint(1000,9999)}-{random.randint(1000,9999)}"
+    prefix_id = random.randint(7000000000, 8999999999)
+    alphabet = string.ascii_letters + string.digits + "_-"
+    token_body = ''.join(secrets.choice(alphabet) for _ in range(35))
+    k = f"{prefix_id}:AA{token_body}"
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO license_keys (key_code, duration_days) VALUES (?, ?)", (k, duration_days))
@@ -347,18 +354,21 @@ def verify_fampay_gmail(email_addr, app_password, target_amount, target_utr=None
         return False, str(e)
 
 def verify_paytm_merchant(mid, user_utr, target_amount):
-    if not mid or not user_utr:
-        return False, "Merchant ID or UTR missing"
-    try:
-        url = "https://securegw.paytm.in/merchant-status/getTxnStatus"
-        resp = requests.post(url, json={"MID": mid.strip(), "ORDERID": str(user_utr).strip()}, timeout=8).json()
-        if resp.get("STATUS") == "TXN_SUCCESS":
-            txn_amt = float(resp.get("TXNAMOUNT", 0.0))
-            if abs(txn_amt - target_amount) <= 0.5:
-                return True, "Paytm Verified"
-    except Exception:
-        pass
-    if len(str(user_utr)) == 12 and str(user_utr).isdigit():
+    if not user_utr:
+        return False, "UTR missing"
+    if mid:
+        try:
+            url = "https://securegw.paytm.in/merchant-status/getTxnStatus"
+            resp = requests.post(url, json={"MID": mid.strip(), "ORDERID": str(user_utr).strip()}, timeout=8).json()
+            if resp.get("STATUS") == "TXN_SUCCESS":
+                txn_amt = float(resp.get("TXNAMOUNT", 0.0))
+                if abs(txn_amt - target_amount) <= 0.5:
+                    return True, "Paytm API Verified"
+        except Exception:
+            pass
+    # Bank 12-digit UTR validation
+    u_str = str(user_utr).strip()
+    if len(u_str) == 12 and u_str.isdigit():
         return True, "UTR Verified"
     return False, "Invalid UTR"
 
@@ -604,20 +614,23 @@ def handle_user_callbacks(bot, bot_id, call):
             bot.answer_callback_query(call.id, "Already Verified!", show_alert=True)
             return
 
-        cur.execute("SELECT active_gateway, fampay_email, fampay_app_pwd, paytm_mid FROM child_bots WHERE bot_id=0")
-        b_conf = cur.fetchone()
-
-        gw = b_conf["active_gateway"] if b_conf else "fampay"
-        verified = False
-        reason = ""
-
-        if gw == "fampay" and b_conf and b_conf["fampay_email"] and b_conf["fampay_app_pwd"]:
-            verified, reason = verify_fampay_gmail(b_conf["fampay_email"], b_conf["fampay_app_pwd"], t_row["amount"])
-        elif gw == "paytm" and b_conf and b_conf["paytm_mid"]:
-            verified, reason = verify_paytm_merchant(b_conf["paytm_mid"], tx, t_row["amount"])
+        # License Key purchases ALWAYS verify via Master Paytm Business
+        if t_row["tx_type"] == "buy_key":
+            cur.execute("SELECT paytm_mid FROM child_bots WHERE bot_id=0")
+            m_bot = cur.fetchone()
+            verified, reason = verify_paytm_merchant(m_bot["paytm_mid"] if m_bot else "", tx, t_row["amount"])
         else:
-            verified = False
-            reason = "Master payment credentials being verified."
+            t_id = 0 if bot_id == 0 else bot_id
+            cur.execute("SELECT active_gateway, fampay_email, fampay_app_pwd, paytm_mid FROM child_bots WHERE bot_id=?", (t_id,))
+            b_conf = cur.fetchone()
+            gw = b_conf["active_gateway"] if b_conf else "fampay"
+            if gw == "fampay" and b_conf and b_conf["fampay_email"] and b_conf["fampay_app_pwd"]:
+                verified, reason = verify_fampay_gmail(b_conf["fampay_email"], b_conf["fampay_app_pwd"], t_row["amount"])
+            elif gw == "paytm" and b_conf and b_conf["paytm_mid"]:
+                verified, reason = verify_paytm_merchant(b_conf["paytm_mid"], tx, t_row["amount"])
+            else:
+                verified = False
+                reason = "Payment credentials being verified."
 
         if verified:
             cur.execute("UPDATE transactions SET status='completed' WHERE tx_id=?", (tx,))
@@ -632,7 +645,7 @@ def handle_user_callbacks(bot, bot_id, call):
                 dur_str = "👑 Lifetime" if days >= 30000 else f"{days} Days"
                 succ_msg = (
                     "🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗 𝗦𝗨𝗖𝗖𝗘𝗦𝗦𝗙𝗨𝗟𝗟𝗬!\n\n"
-                    f"🎟️ Here is your Gateway License Key:\n"
+                    f"🎟️ Here is your BotFather-Style License Key:\n"
                     f"👉 `{key_code}`\n\n"
                     f"⏱️ Validity: *{dur_str}*\n\n"
                     "Go to your bot `/admin` ➔ '🔑 License & Gateway Key' ➔ '🎟️ Enter License Key' and submit this code to activate your gateway!"
@@ -888,7 +901,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         bot.send_message(cid, f"Send new price in Rupees for {days} days (e.g. `99` or `199`):")
 
     elif data == "adm_choose_key_duration" and is_master:
-        txt = "🎟️ 𝗚𝗘𝗡𝗘𝗥𝗔𝗧𝗘 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬\n\nChoose duration:"
+        txt = "🎟️ 𝗚𝗘𝗡𝗘𝗥𝗔𝗧𝗘 𝗕𝗢𝗧𝗙𝗔𝗧𝗛𝗘𝗥-𝗦𝗧𝗬𝗟𝗘 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬\n\nChoose duration:"
         m = types.InlineKeyboardMarkup(row_width=2)
         m.add(
             types.InlineKeyboardButton("⚡ 7 Days (Trial)", callback_data="adm_make_key_7"),
@@ -917,7 +930,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         dur_str = "👑 Lifetime" if days >= 30000 else f"{days} Days"
         txt = (
             f"🎟️ 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬 𝗚𝗘𝗡𝗘𝗥𝗔𝗧𝗘𝗗\n\n"
-            f"🔑 Key Code: `{key}`\n"
+            f"🔑 BotFather-Style Key:\n`{key}`\n\n"
             f"⏱️ Validity: *{dur_str}*\n\n"
             "Send this code to your client to activate their gateway!"
         )
@@ -925,6 +938,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         m.add(types.InlineKeyboardButton("🔙 Back to Key Generator", callback_data="adm_choose_key_duration"))
         bot.send_message(cid, txt, parse_mode="Markdown", reply_markup=m)
 
+    # 100% Paytm-Only License Purchase for Child Bots
     elif data == "c_buy_key_menu":
         conn = get_db()
         cur = conn.cursor()
@@ -934,7 +948,8 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
 
         txt = (
             "🛒 𝗣𝗨𝗥𝗖𝗛𝗔𝗦𝗘 𝗚𝗔𝗧𝗘𝗪𝗔𝗬 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬\n\n"
-            "Select your package to unlock 24/7 Automated UPI QR Payments & Instant Verification:\n"
+            "Select your package to unlock 24/7 Automated UPI Payments & Instant Verification:\n"
+            "*(Payment processed strictly via Official Paytm Business)*\n"
         )
         m = types.InlineKeyboardMarkup(row_width=1)
         for r in rows:
@@ -949,7 +964,8 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         cur.execute("SELECT price, label FROM key_pricing WHERE duration_days=?", (days,))
         p_row = cur.fetchone()
         
-        cur.execute("SELECT fampay_upi, paytm_upi, active_gateway FROM child_bots WHERE bot_id=0")
+        # Strictly Paytm Business receiver for Key sales
+        cur.execute("SELECT paytm_upi FROM child_bots WHERE bot_id=0")
         m_bot = cur.fetchone()
 
         amt = float(p_row["price"])
@@ -960,10 +976,9 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         conn.commit()
         conn.close()
 
-        gw = m_bot["active_gateway"] if m_bot and m_bot["active_gateway"] else "fampay"
-        upi_target = m_bot["fampay_upi"] if gw == "fampay" else m_bot["paytm_upi"]
+        upi_target = m_bot["paytm_upi"] if (m_bot and m_bot["paytm_upi"]) else "paytm.s2xzkgu@pty"
 
-        upi_locked_url = f"upi://pay?pa={upi_target}&pn=MasterGateway&am={amt:.2f}&cu=INR&tr={utr_num}"
+        upi_locked_url = f"upi://pay?pa={upi_target}&pn=MasterPaytm&am={amt:.2f}&cu=INR&tr={utr_num}"
         qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={requests.utils.quote(upi_locked_url)}"
 
         caption_txt = (
@@ -972,8 +987,9 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
             "╚═══════════════════════════════╝\n\n"
             f"📦 𝗣𝗮𝗰𝗸𝗮𝗴𝗲 : {p_row['label']}\n"
             f"💵 𝗔𝗺𝗼𝘂𝗻𝘁 : ₹{amt:.2f} (🔒 Locked Amount)\n"
+            f"🏦 𝗣𝗮𝘆𝗺𝗲𝗻𝘁 𝗠𝗲𝘁𝗵𝗼𝗱 : Paytm Business QR\n"
             f"🆔 𝗢𝗿𝗱𝗲𝗿 𝗜𝗗 : `{utr_num}`\n\n"
-            "⚠️ Scan and pay the exact amount. As soon as you click Verify, your License Key will be issued instantly!"
+            "⚠️ Scan and pay the exact amount. As soon as you click Verify, your strong License Key will be issued instantly!"
         )
         m = types.InlineKeyboardMarkup(row_width=1)
         m.add(types.InlineKeyboardButton("✅ VERIFY & GET KEY", callback_data=f"chk_pay_{utr_num}"))
@@ -995,17 +1011,17 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
             "🔑 𝗚𝗔𝗧𝗘𝗪𝗔𝗬 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 & 𝗦𝗨𝗕𝗦𝗖𝗥𝗜𝗣𝗧𝗜𝗢𝗡\n\n"
             f"• Status: {reason}\n"
             f"• Expiry Date: `{exp}`\n\n"
-            "Click below to purchase an instant automated key or redeem your code:"
+            "Click below to purchase an instant automated key via Paytm or enter your key:"
         )
         m = types.InlineKeyboardMarkup(row_width=1)
-        m.add(types.InlineKeyboardButton("🛒 Buy Key Automatically (Instant)", callback_data="c_buy_key_menu"))
+        m.add(types.InlineKeyboardButton("🛒 Buy Key Automatically (Paytm QR)", callback_data="c_buy_key_menu"))
         m.add(types.InlineKeyboardButton("🎟️ Enter License Key", callback_data="c_enter_lic_key"))
         m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="adm_back_panel"))
         bot.edit_message_text(txt, cid, mid, reply_markup=m, parse_mode="Markdown")
 
     elif data == "c_enter_lic_key":
         user_states[f"{bot_id}_{uid}"] = "wait_redeem_key"
-        bot.send_message(cid, "🔑 Send your License Key code (e.g. `PRANAV-30D-XXXX-XXXX`):")
+        bot.send_message(cid, "🔑 Send your BotFather-Style License Key:")
 
     elif data == "adm_list_child_bots" and is_master:
         conn = get_db()
@@ -1198,7 +1214,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         b_set = cur.fetchone()
         conn.close()
 
-        gw = b_set["active_gateway"] if b_set else "fampay"
+        gw = b_set["active_gateway"] if b_set else "paytm"
         f_email = b_set["fampay_email"] if (b_set and b_set["fampay_email"]) else "pranavpatel95334@gmail.com"
         f_upi = b_set["fampay_upi"] if (b_set and b_set["fampay_upi"]) else "pranav12013@fam"
         p_mid = b_set["paytm_mid"] if (b_set and b_set["paytm_mid"]) else "Not Set"
@@ -1344,7 +1360,7 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         key_code = generate_license_key(duration_days=days)
         txt_res = (
             f"🎟️ 𝗖𝗨𝗦𝗧𝗢𝗠 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬 𝗚𝗘𝗡𝗘𝗥𝗔𝗧𝗘𝗗\n\n"
-            f"🔑 Key Code: `{key_code}`\n"
+            f"🔑 Key Code:\n`{key_code}`\n\n"
             f"⏱️ Validity: *{days} Days*\n\n"
             "Send this code to your client to activate their gateway!"
         )
@@ -1373,7 +1389,7 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         dur_text = "👑 Lifetime" if days >= 30000 else f"{days} Days"
         succ_text = (
             "🎉 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗔𝗖𝗧𝗜𝗩𝗔𝗧𝗘𝗗 𝗦𝗨𝗖𝗖𝗘𝗦𝗦𝗙𝗨𝗟𝗟𝗬!\n\n"
-            f"🔑 Key: `{txt}`\n"
+            f"🔑 Key:\n`{txt}`\n\n"
             f"⏱️ Validity: {dur_text}\n"
             f"📅 Expiry: `{new_exp}`\n\n"
             "Your Automated UPI Gateway & Payment Verification is now fully active."
@@ -1463,20 +1479,22 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
             bot.send_message(cid, "Transaction already completed or invalid.", reply_markup=get_user_main_menu())
             return
 
-        cur.execute("SELECT active_gateway, fampay_email, fampay_app_pwd, paytm_mid FROM child_bots WHERE bot_id=0")
-        b_conf = cur.fetchone()
-
-        gw = b_conf["active_gateway"] if b_conf else "fampay"
-        verified = False
-        reason = ""
-
-        if gw == "fampay" and b_conf and b_conf["fampay_email"] and b_conf["fampay_app_pwd"]:
-            verified, reason = verify_fampay_gmail(b_conf["fampay_email"], b_conf["fampay_app_pwd"], t_row["amount"])
-        elif gw == "paytm" and b_conf and b_conf["paytm_mid"]:
-            verified, reason = verify_paytm_merchant(b_conf["paytm_mid"], user_utr, t_row["amount"])
+        if t_row["tx_type"] == "buy_key":
+            cur.execute("SELECT paytm_mid FROM child_bots WHERE bot_id=0")
+            m_bot = cur.fetchone()
+            verified, reason = verify_paytm_merchant(m_bot["paytm_mid"] if m_bot else "", user_utr, t_row["amount"])
         else:
-            if len(user_utr) == 12 and user_utr.isdigit():
-                verified = True
+            t_id = 0 if bot_id == 0 else bot_id
+            cur.execute("SELECT active_gateway, fampay_email, fampay_app_pwd, paytm_mid FROM child_bots WHERE bot_id=?", (t_id,))
+            b_conf = cur.fetchone()
+            gw = b_conf["active_gateway"] if b_conf else "fampay"
+            if gw == "fampay" and b_conf and b_conf["fampay_email"] and b_conf["fampay_app_pwd"]:
+                verified, reason = verify_fampay_gmail(b_conf["fampay_email"], b_conf["fampay_app_pwd"], t_row["amount"])
+            elif gw == "paytm" and b_conf and b_conf["paytm_mid"]:
+                verified, reason = verify_paytm_merchant(b_conf["paytm_mid"], user_utr, t_row["amount"])
+            else:
+                verified = (len(user_utr) == 12 and user_utr.isdigit())
+                reason = "Verified"
 
         if verified:
             cur.execute("UPDATE transactions SET status='completed' WHERE tx_id=?", (tx,))
@@ -1488,7 +1506,7 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
                 conn.close()
 
                 dur_str = "👑 Lifetime" if days >= 30000 else f"{days} Days"
-                bot.send_message(cid, f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n\n🔑 Key: `{key_code}`\n⏱️ Validity: {dur_str}\n\nEnter this in your `/admin` ➔ License to activate!", parse_mode="Markdown")
+                bot.send_message(cid, f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n\n🔑 BotFather-Style Key:\n`{key_code}`\n\n⏱️ Validity: {dur_str}\n\nEnter this in your `/admin` ➔ License to activate!", parse_mode="Markdown")
             else:
                 cur.execute("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", 
                             (t_row["amount"], t_row["amount"], bot_id, uid))
@@ -1872,7 +1890,6 @@ def run_master_bot_loop():
             master_is_running = False
             time.sleep(2)
 
-# 5-SECOND NON-STOP WAKEUP ENGINE
 def five_second_keepalive_engine():
     time.sleep(5)
     pulse_counter = 0
@@ -1880,13 +1897,13 @@ def five_second_keepalive_engine():
         try:
             pulse_counter += 1
             
-            # 1. Local Internal Ping every 5 seconds
+            # Local Internal Ping every 5 seconds
             try:
                 requests.get(f"http://127.0.0.1:{RENDER_PORT}/", timeout=3)
             except Exception:
                 pass
 
-            # 2. Render External Domain Ping every 30 seconds
+            # Render External Domain Ping every 30 seconds
             if pulse_counter % 6 == 0 and RENDER_EXTERNAL_URL:
                 url = RENDER_EXTERNAL_URL.rstrip('/')
                 if not url.startswith("http"):
@@ -1896,7 +1913,7 @@ def five_second_keepalive_engine():
                 except Exception:
                     pass
 
-            # 3. Auto-Verify Pending Transactions in background
+            # Auto-Verify Pending Transactions in background
             if pulse_counter % 2 == 0:
                 conn = get_db()
                 cur = conn.cursor()
@@ -1904,29 +1921,40 @@ def five_second_keepalive_engine():
                 pending_txs = cur.fetchall()
                 for p in pending_txs:
                     t_id = 0 if p["bot_id"] == 0 else p["bot_id"]
-                    cur.execute("SELECT active_gateway, fampay_email, fampay_app_pwd, paytm_mid FROM child_bots WHERE bot_id=0")
-                    b_conf = cur.fetchone()
-                    if b_conf and b_conf["active_gateway"] == "fampay" and b_conf["fampay_email"] and b_conf["fampay_app_pwd"]:
-                        ok, _ = verify_fampay_gmail(b_conf["fampay_email"], b_conf["fampay_app_pwd"], p["amount"])
-                        if ok:
-                            cur.execute("UPDATE transactions SET status='completed' WHERE tx_id=?", (p["tx_id"],))
-                            if p["tx_type"] == "buy_key":
-                                days = p["target_days"]
-                                key_code = generate_license_key(duration_days=days)
-                                cur.execute("UPDATE license_keys SET used_by_bot_id=? WHERE key_code=?", (p["bot_id"], key_code))
-                                try:
-                                    tb = telebot.TeleBot(MASTER_BOT_TOKEN)
-                                    dur_str = "👑 Lifetime" if days >= 30000 else f"{days} Days"
-                                    tb.send_message(p["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗨𝗧𝗢-𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n\nHere is your Key:\n`{key_code}`\nValidity: {dur_str}\n\nEnter it in `/admin` ➔ License to activate!", parse_mode="Markdown")
-                                except Exception:
-                                    pass
-                            else:
-                                cur.execute("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?",
-                                            (p["amount"], p["amount"], p["bot_id"], p["user_id"]))
-                            conn.commit()
+                    
+                    if p["tx_type"] == "buy_key":
+                        cur.execute("SELECT paytm_mid FROM child_bots WHERE bot_id=0")
+                        m_bot = cur.fetchone()
+                        ok, _ = verify_paytm_merchant(m_bot["paytm_mid"] if m_bot else "", p["tx_id"], p["amount"])
+                    else:
+                        cur.execute("SELECT active_gateway, fampay_email, fampay_app_pwd, paytm_mid FROM child_bots WHERE bot_id=?", (t_id,))
+                        b_conf = cur.fetchone()
+                        if b_conf and b_conf["active_gateway"] == "fampay" and b_conf["fampay_email"] and b_conf["fampay_app_pwd"]:
+                            ok, _ = verify_fampay_gmail(b_conf["fampay_email"], b_conf["fampay_app_pwd"], p["amount"])
+                        elif b_conf and b_conf["active_gateway"] == "paytm" and b_conf["paytm_mid"]:
+                            ok, _ = verify_paytm_merchant(b_conf["paytm_mid"], p["tx_id"], p["amount"])
+                        else:
+                            ok = False
+
+                    if ok:
+                        cur.execute("UPDATE transactions SET status='completed' WHERE tx_id=?", (p["tx_id"],))
+                        if p["tx_type"] == "buy_key":
+                            days = p["target_days"]
+                            key_code = generate_license_key(duration_days=days)
+                            cur.execute("UPDATE license_keys SET used_by_bot_id=? WHERE key_code=?", (p["bot_id"], key_code))
+                            try:
+                                tb = telebot.TeleBot(MASTER_BOT_TOKEN)
+                                dur_str = "👑 Lifetime" if days >= 30000 else f"{days} Days"
+                                tb.send_message(p["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗨𝗧𝗢-𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n\nHere is your Key:\n`{key_code}`\n\nValidity: {dur_str}\n\nEnter it in `/admin` ➔ License to activate!", parse_mode="Markdown")
+                            except Exception:
+                                pass
+                        else:
+                            cur.execute("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?",
+                                        (p["amount"], p["amount"], p["bot_id"], p["user_id"]))
+                        conn.commit()
                 conn.close()
 
-            # 4. Watchdog: Auto-Revive Crashed Bot Threads
+            # Watchdog: Auto-Revive Crashed Bot Threads
             if pulse_counter % 3 == 0:
                 conn = get_db()
                 cur = conn.cursor()
@@ -1959,6 +1987,7 @@ def home():
         "status": "online",
         "engine": "Pranav Father Dev Master Engine",
         "pulse_mode": "5-second active self-ping",
+        "key_sale_gateway": "Strictly Paytm Business",
         "master_live": master_is_running,
         "child_bots_alive": len([t for t in bot_threads.values() if t.is_alive()])
     }), 200
