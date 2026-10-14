@@ -135,25 +135,22 @@ def init_db():
 
 init_db()
 
-# Default clean starter services
+# Seed Clean Matching Services
 def seed_default_master_services():
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) as count FROM master_services")
     if cur.fetchone()["count"] == 0:
         defaults = [
-            ("Instagram", "Followers", "Instagram Followers [Non-Drop Fast]", "101", 4.0, 100, 500000, "Quality: Real Mix | Speed: Superfast | Refill: 365 Days"),
-            ("Instagram", "Likes", "Instagram Likes [Indian High Quality]", "102", 1.0, 100, 1000000, "Quality: Pure Indian | Speed: Instant Start"),
-            ("Instagram", "Reel Views", "Instagram Reel Views [Instant Delivery]", "103", 0.04, 100, 10000000, "Speed: 1M/Day | Non-Drop Guaranteed"),
-            ("Instagram", "Comments", "Instagram Custom Comments", "104", 15.0, 10, 5000, "High Quality Custom Positive Comments"),
-            ("Instagram", "Story Views", "Instagram Story Views Instant", "105", 0.5, 100, 50000, "Instant start for latest stories"),
-            ("Facebook", "Page Followers", "Facebook Page Followers / Likes", "201", 14.0, 100, 100000, "Safe Non-Drop Page Growth"),
-            ("Facebook", "Post Likes", "Facebook Post Likes Instant", "202", 5.0, 100, 100000, "Fast Delivery Worldwide"),
-            ("Telegram", "Channel Members", "Telegram Channel Members [Non-Drop]", "301", 8.0, 100, 100000, "0-1 Hour Start | High Retention"),
-            ("Telegram", "Post Views", "Telegram Post Views [Instant Multi-Post]", "302", 0.1, 100, 500000, "Superfast View Counter"),
-            ("YouTube", "Subscribers", "YouTube Subscribers [Non-Drop Safe]", "401", 60.0, 50, 10000, "Guaranteed Real Retention"),
-            ("YouTube", "Views", "YouTube Video Views [High Retention]", "402", 12.0, 100, 500000, "Monetizable Safe Views"),
-            ("YouTube", "Likes", "YouTube Video Likes Instant", "403", 8.0, 100, 100000, "Fast High Quality Likes")
+            ("Instagram", "Ig Followers", "🛒 Cheap Followers", "101", 4.5, 100, 1000000, "QUALITY ~ GOOD QUALITY\nSPEED ~ FAST INSTANT\nDATA ~ PROFILE + 2 POST\nDROP ~ HIGH DROP POSSIBLE\nREFILL ~ NO REFILL"),
+            ("Instagram", "Ig Followers", "🛒 Ig Followers Hq 🫧", "102", 24.0, 100, 500000, "QUALITY ~ 100% REAL HUMANS\nSPEED ~ SUPERFAST\nDROP ~ NO DROPS GUARANTEED\nREFILL ~ LIFETIME REFILL"),
+            ("Instagram", "Ig Likes", "💖 Indian Likes [Max 10k]", "103", 1.8, 100, 1000000, "QUALITY ~ 100% REAL MIX INDIAN\nSPEED ~ INSTANT 100K/DAY\nDROP ~ NO DROP\nREFILL ~ 365 DAYS"),
+            ("Instagram", "Reels View's", "👀 Reel Views Instant", "104", 0.05, 100, 10000000, "QUALITY ~ SUPERFAST HIGH SPEED\nSPEED ~ INSTANT START\nDROP ~ NON DROP"),
+            ("Instagram", "Post View's", "👓 Post Impressions & Reach", "105", 0.1, 100, 5000000, "QUALITY ~ INSTANT REAL IMPRESSIONS\nSPEED ~ FAST DELIVERY"),
+            ("Facebook", "Page Followers", "🛒 Facebook Page Followers", "201", 14.0, 100, 100000, "SAFE NON DROP HIGH RETENTION"),
+            ("Facebook", "Post Likes", "👍 Facebook Post Likes", "202", 5.0, 100, 100000, "FAST DELIVERY WORLDWIDE"),
+            ("Telegram", "Channel Members", "🛒 Telegram Channel Members", "301", 8.0, 100, 100000, "0-1 HOUR FAST START NON DROP"),
+            ("Telegram", "Post Views", "👀 Telegram Post Views", "302", 0.1, 100, 500000, "SUPERFAST MULTI-POST VIEW COUNTER")
         ]
         for d in defaults:
             cur.execute("""
@@ -165,10 +162,10 @@ def seed_default_master_services():
 
 seed_default_master_services()
 
-# Auto Categorizer for pranavsmm.shop API
+# Auto Categorizer for pranavsmm.shop API (Filters clean & skips crypto/spam junk)
 def sync_services_from_website_api():
     if not MAIN_PANEL_API_KEY:
-        return 0, "No API key set"
+        return 0, "No API key configured"
     try:
         resp = requests.post(MAIN_PANEL_URL, data={"key": MAIN_PANEL_API_KEY, "action": "services"}, timeout=15)
         srv_list = resp.json()
@@ -183,33 +180,34 @@ def sync_services_from_website_api():
             name = str(s.get("name", "Service"))
             cat = str(s.get("category", "")).lower()
             name_l = name.lower()
+
+            # Skip irrelevant spam / coin / live services
+            if "coin" in cat or "market" in cat or "shopee" in cat or "traffic" in cat:
+                continue
+
             rate_per_1k = float(s.get("rate", 10.0))
             rate_per_100 = round(rate_per_1k / 10.0, 3)
             min_q = int(s.get("min", 100))
             max_q = int(s.get("max", 1000000))
 
-            plat = "Instagram"
-            sub_cat = "Likes"
+            plat = None
+            sub_cat = None
 
             if "instagram" in cat or "ig" in cat or "reel" in cat or "instagram" in name_l:
                 plat = "Instagram"
                 if "follower" in cat or "follower" in name_l:
-                    sub_cat = "Followers"
-                elif "reel" in cat or "reel" in name_l or "view" in cat or "view" in name_l:
-                    sub_cat = "Reel Views"
-                elif "comment" in cat or "comment" in name_l:
-                    sub_cat = "Comments"
-                elif "story" in cat or "story" in name_l:
-                    sub_cat = "Story Views"
+                    sub_cat = "Ig Followers"
+                elif "reel" in cat or "reel" in name_l:
+                    sub_cat = "Reels View's"
+                elif "view" in cat or "view" in name_l or "impression" in name_l:
+                    sub_cat = "Post View's"
                 else:
-                    sub_cat = "Likes"
+                    sub_cat = "Ig Likes"
 
             elif "facebook" in cat or "fb" in cat or "facebook" in name_l:
                 plat = "Facebook"
                 if "follower" in cat or "follower" in name_l or "page" in cat:
                     sub_cat = "Page Followers"
-                elif "view" in cat or "view" in name_l:
-                    sub_cat = "Video Views"
                 else:
                     sub_cat = "Post Likes"
 
@@ -217,30 +215,20 @@ def sync_services_from_website_api():
                 plat = "Telegram"
                 if "view" in cat or "view" in name_l:
                     sub_cat = "Post Views"
-                elif "reaction" in cat or "reaction" in name_l:
-                    sub_cat = "Post Reactions"
                 else:
                     sub_cat = "Channel Members"
 
-            elif "youtube" in cat or "yt" in cat or "youtube" in name_l:
-                plat = "YouTube"
-                if "sub" in cat or "sub" in name_l:
-                    sub_cat = "Subscribers"
-                elif "view" in cat or "view" in name_l or "watch" in cat:
-                    sub_cat = "Views"
-                else:
-                    sub_cat = "Likes"
-
-            cur.execute("""
-            INSERT INTO master_services (platform, sub_category, service_name, main_api_service_id, base_rate_per_100, min_qty, max_qty, description)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(main_api_service_id) DO UPDATE SET
-            base_rate_per_100=excluded.base_rate_per_100,
-            service_name=excluded.service_name,
-            min_qty=excluded.min_qty,
-            max_qty=excluded.max_qty
-            """, (plat, sub_cat, name, sid, rate_per_100, min_q, max_q, "Guaranteed Instant Delivery"))
-            synced += 1
+            if plat and sub_cat:
+                cur.execute("""
+                INSERT INTO master_services (platform, sub_category, service_name, main_api_service_id, base_rate_per_100, min_qty, max_qty, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(main_api_service_id) DO UPDATE SET
+                base_rate_per_100=excluded.base_rate_per_100,
+                service_name=excluded.service_name,
+                min_qty=excluded.min_qty,
+                max_qty=excluded.max_qty
+                """, (plat, sub_cat, f"🛒 {name}", sid, rate_per_100, min_q, max_q, "QUALITY ~ GOOD QUALITY\nSPEED ~ FAST INSTANT\nREFILL ~ GUARANTEED"))
+                synced += 1
 
         conn.commit()
         conn.close()
@@ -292,7 +280,6 @@ def verify_fampay_gmail(email_addr, app_password, target_amount, target_utr=None
     except Exception as e:
         return False, str(e)
 
-# Native Paytm Merchant Verification
 def verify_paytm_merchant(mid, user_utr, target_amount):
     if not mid or not user_utr:
         return False, "Merchant ID or UTR missing"
@@ -373,6 +360,7 @@ def get_owner_panel(is_master=False):
     m.add(types.InlineKeyboardButton("Main Menu", callback_data="a_back_main"))
     return m
 
+# Exact Main Menu
 def get_user_main_menu():
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(
@@ -427,13 +415,13 @@ def handle_user_callbacks(bot, bot_id, call):
             f"🛒 Total Spent - ₹{tsp:.2f}"
         )
         m = types.InlineKeyboardMarkup(row_width=2)
-        m.add(types.InlineKeyboardButton("💰 Deposit", callback_data="u_dep"), types.InlineKeyboardButton("🔙 Go Back", callback_data="u_back_main"))
+        m.add(types.InlineKeyboardButton("💰 Deposit", callback_data="u_dep"), types.InlineKeyboardButton("🔙 GO BACK", callback_data="u_back_main"))
         bot.edit_message_text(acc_text, cid, mid, reply_markup=m, parse_mode="Markdown")
 
     elif data == "u_dep":
         m = types.InlineKeyboardMarkup(row_width=1)
-        m.add(types.InlineKeyboardButton("⚡ Instant UPI QR (FamPay / Paytm)", callback_data="u_dep_method_upi"))
-        m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="u_back_main"))
+        m.add(types.InlineKeyboardButton("⚡ Instant UPI (FamPay / Paytm)", callback_data="u_dep_method_upi"))
+        m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="u_back_main"))
         bot.edit_message_text("💷 DEPOSIT FUNDS\n\nSelect A Method To Continue:", cid, mid, reply_markup=m)
 
     elif data == "u_dep_method_upi":
@@ -570,7 +558,7 @@ def handle_user_callbacks(bot, bot_id, call):
         m = types.InlineKeyboardMarkup(row_width=2)
         m.add(types.InlineKeyboardButton("🔵 Pending", callback_data="h_pending"), types.InlineKeyboardButton("🟢 Completed", callback_data="h_completed"))
         m.add(types.InlineKeyboardButton("❌ Cancelled", callback_data="h_cancelled"), types.InlineKeyboardButton("🟣 Refund", callback_data="h_refund"))
-        m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="u_back_main"))
+        m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="u_back_main"))
         bot.edit_message_text("🗓️ Order History\n\nSelect type to check status:", cid, mid, reply_markup=m)
 
     elif data in ["h_pending", "h_completed", "h_cancelled"]:
@@ -581,7 +569,7 @@ def handle_user_callbacks(bot, bot_id, call):
         ords = cur.fetchall()
         conn.close()
         m = types.InlineKeyboardMarkup()
-        m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="u_hist"))
+        m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="u_hist"))
         if ords:
             t = "\n\n".join([f"📦 {o['service_name']}\nQty: {o['quantity']} | Cost: ₹{o['charge']:.2f}" for o in ords])
             bot.edit_message_text(f"{st} Orders:\n\n{t}", cid, mid, reply_markup=m)
@@ -590,25 +578,52 @@ def handle_user_callbacks(bot, bot_id, call):
 
     elif data == "h_refund":
         m = types.InlineKeyboardMarkup()
-        m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="u_hist"))
+        m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="u_hist"))
         bot.edit_message_text("Refund:\nSend Cancelled Order ID to claim refund.", cid, mid, reply_markup=m)
 
-    # Ultra-Clean Video Style Order Menu
+    # EXACT SCREENSHOT 7060 COPY (ORDER NOW)
     elif data == "u_ord":
         ord_screen = (
-            "╭──────────────────────────╮\n"
-            "  ORDER NOW 🖤\n"
-            "╰──────────────────────────╯\n\n"
-            "✅ SELECT PLATFORM:\n"
-            "Instant Automated Processing 24/7"
+            "╔═══════════════════════════════╗\n"
+            "   🩸 𝗢𝗥𝗗𝗘𝗥 ~ 𝗡𝗢𝗪 🖤\n"
+            "╚═══════════════════════════════╝\n\n"
+            "☑️ 𝗦𝗘𝗟𝗘𝗖𝗧 𝗔 𝗣𝗟𝗔𝗧𝗙𝗢𝗥𝗠 📸📘✈️\n"
+            "❄️❄️❄️❄️❄️❄️❄️❄️❄️\n"
+            "𝗖𝗛𝗢𝗢𝗦𝗘 𝗬𝗢𝗨𝗥 𝗣𝗟𝗔𝗧𝗙𝗢𝗥𝗠 𝗧𝗢 𝗕𝗥𝗢𝗪𝗦𝗘 𝗛𝗜𝗚𝗛 𝗦𝗣𝗘𝗘𝗗 𝗚𝗨𝗔𝗥𝗔𝗡𝗧𝗘𝗘𝗗 𝗣𝗔𝗖𝗞𝗔𝗚𝗘𝗦 𝗪𝗜𝗧𝗛 𝗜𝗡𝗦𝗧𝗔𝗡𝗧 𝗗𝗘𝗟𝗜𝗩𝗘𝗥𝗬 ⏳🟢⏳\n"
+            "❄️❄️❄️❄️❄️❄️❄️❄️❄️"
         )
         m = types.InlineKeyboardMarkup(row_width=2)
         m.add(types.InlineKeyboardButton("📸 INSTAGRAM", callback_data="u_plat_Instagram"),
               types.InlineKeyboardButton("📘 FACEBOOK", callback_data="u_plat_Facebook"))
-        m.add(types.InlineKeyboardButton("✈️ TELEGRAM", callback_data="u_plat_Telegram"),
-              types.InlineKeyboardButton("▶️ YOUTUBE", callback_data="u_plat_YouTube"))
-        m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="u_back_main"))
+        m.add(types.InlineKeyboardButton("✈️ TELEGRAM", callback_data="u_plat_Telegram"))
+        m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="u_back_main"))
         bot.edit_message_text(ord_screen, cid, mid, reply_markup=m)
+
+    # EXACT SCREENSHOT 7061 COPY (SELECT YOUR SERVICE)
+    elif data == "u_plat_Instagram":
+        ig_screen = (
+            "╔═══════════════════════════════╗\n"
+            "  👑 𝗦𝗘𝗟𝗘𝗖𝗧 𝗬𝗢𝗨𝗥 𝗦𝗘𝗥𝗩𝗜𝗖𝗘 👑\n"
+            "╚═══════════════════════════════╝\n\n"
+            "𝗖𝗛𝗢𝗢𝗦𝗘 𝗔 𝗦𝗘𝗥𝗩𝗜𝗖𝗘 𝗖𝗔𝗧𝗘𝗚𝗢𝗥𝗬 🟩\n\n"
+            "𝗔𝗟𝗟 𝗖𝗔𝗧𝗘𝗚𝗢𝗥𝗜𝗘𝗦 𝗙𝗘𝗔𝗧𝗨𝗥𝗘 𝗥𝗘𝗔𝗟-𝗧𝗜𝗠𝗘 𝗣𝗥𝗢𝗖𝗘𝗦𝗦𝗜𝗡𝗚 𝗔𝗡𝗗 𝗖𝗢𝗠𝗣𝗘𝗧𝗜𝗧𝗜𝗩𝗘 𝗥𝗔𝗧𝗘𝗦.\n"
+            "🖤🖤🖤"
+        )
+        m = types.InlineKeyboardMarkup(row_width=2)
+        m.add(types.InlineKeyboardButton("🟣 IG FOLLOWERS", callback_data="u_sub_Instagram_Ig Followers"),
+              types.InlineKeyboardButton("💖 IG LIKES", callback_data="u_sub_Instagram_Ig Likes"))
+        m.add(types.InlineKeyboardButton("👀 REELS VIEW'S", callback_data="u_sub_Instagram_Reels View's"),
+              types.InlineKeyboardButton("👓 POST VIEW'S", callback_data="u_sub_Instagram_Post View's"))
+        m.add(types.InlineKeyboardButton("💎 MORE", callback_data="u_ig_more"))
+        m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="u_ord"))
+        bot.edit_message_text(ig_screen, cid, mid, reply_markup=m)
+
+    elif data == "u_ig_more":
+        m = types.InlineKeyboardMarkup(row_width=2)
+        m.add(types.InlineKeyboardButton("💬 COMMENTS", callback_data="u_sub_Instagram_Comments"),
+              types.InlineKeyboardButton("👁️ STORY VIEWS", callback_data="u_sub_Instagram_Story Views"))
+        m.add(types.InlineKeyboardButton("🔙 PREVIOUS", callback_data="u_plat_Instagram"))
+        bot.edit_message_text("💎 ADDITIONAL SERVICES\n\nSelect Below:", cid, mid, reply_markup=m)
 
     elif data.startswith("u_plat_"):
         plat = data.replace("u_plat_", "")
@@ -620,10 +635,11 @@ def handle_user_callbacks(bot, bot_id, call):
 
         m = types.InlineKeyboardMarkup(row_width=2)
         for s in subs:
-            m.add(types.InlineKeyboardButton(f"⭐ {s['sub_category']}", callback_data=f"u_sub_{plat}_{s['sub_category']}"))
-        m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="u_ord"))
-        bot.edit_message_text(f"🌟 {plat.upper()} SERVICES\n\nSelect Category Below:", cid, mid, reply_markup=m)
+            m.add(types.InlineKeyboardButton(f"⭐ {s['sub_category'].upper()}", callback_data=f"u_sub_{plat}_{s['sub_category']}"))
+        m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="u_ord"))
+        bot.edit_message_text(f"🌟 {plat.upper()} SERVICES\n\nChoose category:", cid, mid, reply_markup=m)
 
+    # EXACT SCREENSHOT 7062 COPY (SUB-CATEGORY LIST)
     elif data.startswith("u_sub_"):
         parts = data.split("_")
         plat = parts[2]
@@ -642,14 +658,18 @@ def handle_user_callbacks(bot, bot_id, call):
         srvs = cur.fetchall()
         conn.close()
 
+        cat_title = (
+            f"🛒 {sub_cat.upper()}\n\n"
+            "👾 𝗦𝗘𝗟𝗘𝗖𝗧 𝗔 𝗦𝗘𝗥𝗩𝗜𝗖𝗘 𝗧𝗢 𝗩𝗜𝗘𝗪 𝗥𝗔𝗧𝗘𝗦 𝗔𝗡𝗗 𝗣𝗟𝗔𝗖𝗘 𝗢𝗥𝗗𝗘𝗥"
+        )
         m = types.InlineKeyboardMarkup(row_width=1)
         if srvs:
             for s in srvs:
-                m.add(types.InlineKeyboardButton(f"{s['service_name']} (₹{s['price']}/100)", callback_data=f"u_viewsrv_{s['id']}"))
-        m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data=f"u_plat_{plat}"))
-        txt = f"🛒 {sub_cat}\n\nSelect Service:" if srvs else f"No services active under {sub_cat} currently."
-        bot.edit_message_text(txt, cid, mid, reply_markup=m)
+                m.add(types.InlineKeyboardButton(f"{s['service_name']}", callback_data=f"u_viewsrv_{s['id']}"))
+        m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data=f"u_plat_{plat}"))
+        bot.edit_message_text(cat_title, cid, mid, reply_markup=m)
 
+    # EXACT SCREENSHOT 7063 COPY (SERVICE DETAILS & LINK PROMPT)
     elif data.startswith("u_viewsrv_"):
         msid = int(data.replace("u_viewsrv_", ""))
         conn = get_db()
@@ -668,17 +688,24 @@ def handle_user_callbacks(bot, bot_id, call):
         conn.close()
 
         user_states[f"{bot_id}_{uid}"] = {"step": "wait_link", "msid": msid, "price": price}
-        txt = (
-            f"📦 {ms['service_name'].upper()}\n\n"
-            f"💵 Price : ₹{price:.2f} / 100\n"
-            f"🎯 Min : {ms['min_qty']} • Max : {ms['max_qty']}\n\n"
-            f"📜 Details:\n{desc}\n\n"
-            "🔗 Send Target Profile/Post Link in chat:"
+        
+        card_text = (
+            "╔═══════════════════════════════════╗\n"
+            f"  {ms['service_name'].upper()}\n"
+            "╚═══════════════════════════════════╝\n\n"
+            f"💱 𝗣𝗥𝗜𝗖𝗘 : ₹{price:.1f} / 100\n"
+            f"🌟 𝗠𝗜𝗡 : {ms['min_qty']}  •  𝗠𝗔𝗫 : {ms['max_qty']}\n\n"
+            f"🌟 𝗗𝗘𝗧𝗔𝗜𝗟𝗦\n"
+            "─────────────────────────────\n"
+            f"{desc}\n"
+            "─────────────────────────────\n\n"
+            "🔗 𝗡𝗢𝗪 𝗦𝗘𝗡𝗗 𝗬𝗢𝗨𝗥 𝗣𝗥𝗢𝗙𝗜𝗟𝗘 / 𝗣𝗢𝗦𝗧 𝗟𝗜𝗡𝗞"
         )
         m = types.InlineKeyboardMarkup()
-        m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data=f"u_sub_{ms['platform']}_{ms['sub_category']}"))
-        bot.edit_message_text(txt, cid, mid, reply_markup=m)
+        m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data=f"u_sub_{ms['platform']}_{ms['sub_category']}"))
+        bot.edit_message_text(card_text, cid, mid, reply_markup=m)
 
+    # EXACT SCREENSHOT 7060 / 7061 TOP BOX (WHATSAPP SUPPORT)
     elif data == "u_supp":
         conn = get_db()
         cur = conn.cursor()
@@ -689,10 +716,17 @@ def handle_user_callbacks(bot, bot_id, call):
             supp = cur.fetchone()["support_contact"] or "@pranavsmm"
         conn.close()
         supp_url = f"https://wa.me/{supp.replace('+', '')}" if supp.isdigit() else f"https://t.me/{supp.replace('@', '')}"
+
+        supp_box = (
+            "╭──────────────────────────╮\n"
+            "  🔥 𝗪𝗛𝗔𝗧𝗦𝗔𝗣𝗣 𝗦𝗨𝗣𝗣𝗢𝗥𝗧\n"
+            "╰──────────────────────────╯\n\n"
+            "𝗢𝗨𝗥 𝗧𝗘𝗔𝗠 𝗜𝗦 𝗔𝗩𝗔𝗜𝗟𝗔𝗕𝗟𝗘 𝗧𝗢 𝗔𝗦𝗦𝗜𝗦𝗧 𝗬𝗢𝗨 𝗪𝗜𝗧𝗛 𝗢𝗥𝗗𝗘𝗥𝗦, 𝗗𝗘𝗣𝗢𝗦𝗜𝗧𝗦, 𝗔𝗡𝗗 𝗔𝗡𝗬 𝗦𝗘𝗥𝗩𝗜𝗖𝗘 𝗤𝗨𝗘𝗥𝗜𝗘𝗦. 🔯"
+        )
         m = types.InlineKeyboardMarkup(row_width=1)
-        m.add(types.InlineKeyboardButton("💬 Chat with Support", url=supp_url))
-        m.add(types.InlineKeyboardButton("🔙 Back", callback_data="u_back_main"))
-        bot.edit_message_text(f"Customer Support:\n\nContact: {supp}", cid, mid, reply_markup=m)
+        m.add(types.InlineKeyboardButton("🟢 CONTACT SUPPORT ↗️", url=supp_url))
+        m.add(types.InlineKeyboardButton("🔙 BACK", callback_data="u_back_main"))
+        bot.edit_message_text(supp_box, cid, mid, reply_markup=m)
 
     elif data == "u_cyob":
         cyob_text = (
@@ -705,7 +739,7 @@ def handle_user_callbacks(bot, bot_id, call):
             "Your Bot Goes Live Instantly!"
         )
         m = types.InlineKeyboardMarkup()
-        m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="u_back_main"))
+        m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="u_back_main"))
         bot.edit_message_text(cyob_text, cid, mid, reply_markup=m)
 
 def handle_owner_callbacks(bot, bot_id, call, is_master=False):
@@ -718,9 +752,9 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         bot.edit_message_text("👑 Owner Panel", cid, mid, reply_markup=get_owner_panel(is_master))
 
     elif data == "adm_sync_api" and is_master:
-        bot.answer_callback_query(call.id, "Syncing from pranavsmm.shop...", show_alert=False)
+        bot.answer_callback_query(call.id, "Syncing clean categories from pranavsmm.shop...", show_alert=False)
         count, msg = sync_services_from_website_api()
-        bot.send_message(cid, f"🔄 API Sync Finished!\n\nImported/Updated: {count} services from pranavsmm.shop\nStatus: {msg}", reply_markup=get_owner_panel(is_master))
+        bot.send_message(cid, f"🔄 API Sync Finished!\n\nImported/Updated: {count} verified services\nStatus: {msg}", reply_markup=get_owner_panel(is_master))
 
     elif data == "a_services":
         if is_master:
@@ -729,9 +763,9 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
                 types.InlineKeyboardButton("🔄 Sync from pranavsmm.shop API", callback_data="adm_sync_api"),
                 types.InlineKeyboardButton("➕ Add Single Service Manually", callback_data="adm_add_single_srv"),
                 types.InlineKeyboardButton("📋 View All Master Services", callback_data="adm_list_msrvs"),
-                types.InlineKeyboardButton("🔙 Go Back", callback_data="adm_back_panel")
+                types.InlineKeyboardButton("🔙 GO BACK", callback_data="adm_back_panel")
             )
-            bot.edit_message_text("⚙️ MASTER SERVICES MANAGEMENT\n\nSync directly from your website or add manually:", cid, mid, reply_markup=m)
+            bot.edit_message_text("⚙️ MASTER SERVICES MANAGEMENT\n\nSync directly from website:", cid, mid, reply_markup=m)
         else:
             m = types.InlineKeyboardMarkup(row_width=2)
             m.add(
@@ -740,25 +774,24 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
             )
             m.add(
                 types.InlineKeyboardButton("✈️ Telegram", callback_data="c_manage_plat_Telegram"),
-                types.InlineKeyboardButton("▶️ YouTube", callback_data="c_manage_plat_YouTube")
+                types.InlineKeyboardButton("🔙 GO BACK", callback_data="adm_back_panel")
             )
-            m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="adm_back_panel"))
-            bot.edit_message_text("⚙️ RESELLER SERVICE MANAGER\n\nSelect Platform to set your own selling price & publish:", cid, mid, reply_markup=m)
+            bot.edit_message_text("⚙️ RESELLER SERVICE MANAGER\n\nSelect Platform to set your selling price & publish:", cid, mid, reply_markup=m)
 
     elif data == "adm_add_single_srv" and is_master:
         user_states[f"{bot_id}_{uid}"] = "wait_m_single_srv"
-        bot.send_message(cid, "Send details in format:\nPlatform | SubCategory | ServiceName | API_ServiceID | BaseCostPer100 | Min | Max\n\nExample:\nInstagram | Likes | Indian Super Likes | 1024 | 1.2 | 100 | 50000")
+        bot.send_message(cid, "Send details in format:\nPlatform | SubCategory | ServiceName | API_ServiceID | BaseCostPer100 | Min | Max\n\nExample:\nInstagram | Ig Likes | 💖 Real Likes | 1024 | 1.8 | 100 | 50000")
 
     elif data == "adm_list_msrvs" and is_master:
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("SELECT id, platform, service_name, base_rate_per_100, main_api_service_id FROM master_services LIMIT 20")
+        cur.execute("SELECT id, platform, sub_category, service_name, base_rate_per_100, main_api_service_id FROM master_services LIMIT 15")
         rows = cur.fetchall()
         conn.close()
         txt = "\n".join([f"#{r['id']} [{r['platform']}] {r['service_name']} (ID:{r['main_api_service_id']}) - ₹{r['base_rate_per_100']}/100" for r in rows]) if rows else "No services in master DB."
         m = types.InlineKeyboardMarkup()
-        m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="a_services"))
-        bot.send_message(cid, f"Master Services (Top 20):\n\n{txt}", reply_markup=m)
+        m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="a_services"))
+        bot.send_message(cid, f"Master Services (Clean View):\n\n{txt}", reply_markup=m)
 
     elif data.startswith("c_manage_plat_"):
         plat = data.replace("c_manage_plat_", "")
@@ -771,8 +804,8 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         m = types.InlineKeyboardMarkup(row_width=1)
         for s in msrvs:
             m.add(types.InlineKeyboardButton(f"{s['service_name']} (Cost: ₹{s['base_rate_per_100']}/100)", callback_data=f"c_set_srv_{s['id']}"))
-        m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="a_services"))
-        bot.edit_message_text(f"Available {plat} Services:\nClick any service to set your price & publish:", cid, mid, reply_markup=m)
+        m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="a_services"))
+        bot.edit_message_text(f"Available {plat} Services:\nClick to set price & publish:", cid, mid, reply_markup=m)
 
     elif data.startswith("c_set_srv_"):
         msid = int(data.replace("c_set_srv_", ""))
@@ -796,13 +829,13 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         )
         m = types.InlineKeyboardMarkup(row_width=1)
         m.add(types.InlineKeyboardButton("💲 Set Price & Publish", callback_data=f"c_pub_{msid}"))
-        m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data=f"c_manage_plat_{ms['platform']}"))
+        m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data=f"c_manage_plat_{ms['platform']}"))
         bot.edit_message_text(txt, cid, mid, reply_markup=m)
 
     elif data.startswith("c_pub_"):
         msid = int(data.replace("c_pub_", ""))
         user_states[f"{bot_id}_{uid}"] = {"step": "wait_resell_price", "msid": msid}
-        bot.send_message(cid, "How much rupees do you want to sell per 100? (e.g. 3 or 5):")
+        bot.send_message(cid, "How much rupees do you want to sell per 100? (e.g. 4.5 or 8):")
 
     elif data == "a_payment":
         conn = get_db()
@@ -827,7 +860,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
               types.InlineKeyboardButton("💙 Set Paytm (MID)", callback_data="adm_set_paytm_mid"))
         m.add(types.InlineKeyboardButton("Switch to FamPay", callback_data="adm_sw_fampay"),
               types.InlineKeyboardButton("Switch to Paytm", callback_data="adm_sw_paytm"))
-        m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="adm_back_panel"))
+        m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="adm_back_panel"))
         bot.edit_message_text(txt, cid, mid, reply_markup=m, parse_mode="Markdown")
 
     elif data == "adm_sw_fampay":
@@ -1267,7 +1300,7 @@ def run_master_bot_loop():
                     )
                     m = types.InlineKeyboardMarkup(row_width=2)
                     m.add(types.InlineKeyboardButton("💛 Your Bots", callback_data="m_mybots"), types.InlineKeyboardButton("➕ Add Bot", callback_data="m_add_bot"))
-                    m.add(types.InlineKeyboardButton("🔙 Go Back", callback_data="u_back_main"))
+                    m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="u_back_main"))
                     try:
                         master_bot.edit_message_text(cyob_box, cid, mid, reply_markup=m)
                     except Exception:
@@ -1377,13 +1410,11 @@ def five_second_keepalive_watchdog():
     while True:
         try:
             counter += 1
-            # Local ping every 5 seconds
             try:
                 requests.get(f"http://127.0.0.1:{RENDER_PORT}/", timeout=3)
             except Exception:
                 pass
 
-            # External ping every 30 seconds
             if counter % 6 == 0 and RENDER_EXTERNAL_URL:
                 url = RENDER_EXTERNAL_URL.rstrip('/')
                 if not url.startswith("http"):
@@ -1393,7 +1424,6 @@ def five_second_keepalive_watchdog():
                 except Exception:
                     pass
 
-            # Auto-revive crashed bots
             if counter % 3 == 0:
                 conn = get_db()
                 cur = conn.cursor()
