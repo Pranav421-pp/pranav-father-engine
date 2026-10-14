@@ -49,7 +49,6 @@ def init_db():
     cur = conn.cursor()
     cur.execute("PRAGMA journal_mode=WAL;")
     
-    # 1. Child bots table without hardcoded credentials
     cur.execute("""
     CREATE TABLE IF NOT EXISTS child_bots (
         bot_id INTEGER PRIMARY KEY,
@@ -172,7 +171,6 @@ def init_db():
             (36500, 1999.0, "👑 Lifetime Access")
         ])
 
-    # Clean master bot row (Lifetime active, no hardcoded payment info)
     future_date = (datetime.datetime.now() + datetime.timedelta(days=36500)).strftime("%Y-%m-%d %H:%M:%S")
     cur.execute("""
     INSERT INTO child_bots (bot_id, owner_id, bot_username, is_licensed, subscription_expiry)
@@ -187,7 +185,6 @@ def init_db():
 
 init_db()
 
-# BotFather-Style Complex Cryptographic Key Generator
 def generate_license_key(duration_days=30):
     prefix_id = random.randint(7000000000, 8999999999)
     alphabet = string.ascii_letters + string.digits + "_-"
@@ -360,7 +357,6 @@ def verify_paytm_merchant(mid, user_utr, target_amount):
     if not u_str:
         return False, "UTR missing"
     
-    # 12-Digit Real Bank UTR Check
     if len(u_str) == 12 and u_str.isdigit():
         if mid:
             try:
@@ -446,7 +442,6 @@ def get_owner_panel(is_master=False):
     m.add(types.InlineKeyboardButton("🔙 Main Menu", callback_data="a_back_main"))
     return m
 
-# EXACT SCREENSHOT 7084 COPY (Father Dev Color UI)
 def get_user_main_menu():
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(
@@ -596,7 +591,7 @@ def handle_user_callbacks(bot, bot_id, call):
                 f"🏦 𝗨𝗣𝗜 𝗜𝗗 : `{upi_target}`\n"
                 f"⏱️ 𝗩𝗮𝗹𝗶𝗱 : 15 Minutes\n\n"
                 "⚠️ *स्कैन करने पर ऐप में अपने-आप यही अमाउंट आएगा।*\n"
-                "पेमेंट पूरी करने के बाद नीचे 'VERIFY PAYMENT' दबाएं या 12 अंकों का UTR भेजें।"
+                "पेमेंट पूरी करने के बाद नीचे 'SUBMIT 12-DIGIT UTR' दबाएं या सीधे चैट में UTR भेजें।"
             )
             m = types.InlineKeyboardMarkup(row_width=1)
             m.add(types.InlineKeyboardButton("✅ VERIFY PAYMENT", callback_data=f"chk_pay_{utr_num}"))
@@ -634,27 +629,24 @@ def handle_user_callbacks(bot, bot_id, call):
             bot.answer_callback_query(call.id, "Already Verified!", show_alert=True)
             return
 
-        # Identify which bot's gateway to check
         t_id = 0 if t_row["tx_type"] == "buy_key" else (0 if bot_id == 0 else bot_id)
-        cur.execute("SELECT active_gateway, fampay_email, fampay_app_pwd, paytm_mid, paytm_upi, fampay_upi FROM child_bots WHERE bot_id=?", (t_id,))
+        cur.execute("SELECT active_gateway, fampay_email, fampay_app_pwd, paytm_mid FROM child_bots WHERE bot_id=?", (t_id,))
         b_conf = cur.fetchone()
 
         gw = b_conf["active_gateway"] if b_conf and b_conf["active_gateway"] else "paytm"
         verified = False
         reason = ""
 
-        # Auto-verify via IMAP or Paytm
         if gw == "fampay" and b_conf and b_conf["fampay_email"] and b_conf["fampay_app_pwd"]:
             verified, reason = verify_fampay_gmail(b_conf["fampay_email"], b_conf["fampay_app_pwd"], t_row["amount"])
-        elif gw == "paytm" and b_conf and b_conf["paytm_mid"]:
-            check_ref = t_row["bank_utr"] if t_row["bank_utr"] else tx
-            verified, reason = verify_paytm_merchant(b_conf["paytm_mid"], check_ref, t_row["amount"])
+        elif gw == "paytm" and b_conf and b_conf["paytm_mid"] and t_row["bank_utr"]:
+            verified, reason = verify_paytm_merchant(b_conf["paytm_mid"], t_row["bank_utr"], t_row["amount"])
         else:
             if t_row["bank_utr"] and len(t_row["bank_utr"]) == 12:
                 verified = True
             else:
                 verified = False
-                reason = "Please click 'SUBMIT 12-DIGIT UTR' and send your bank UTR number."
+                reason = "कृपया 'SUBMIT 12-DIGIT UTR' बटन दबाकर 12-अंकों का बैंक UTR चैट में भेजें।"
 
         if verified:
             cur.execute("UPDATE transactions SET status='completed' WHERE tx_id=?", (tx,))
@@ -685,7 +677,7 @@ def handle_user_callbacks(bot, bot_id, call):
                 bot.send_message(cid, f"🎉 Payment Verified!\n₹{t_row['amount']} credited to your wallet.", reply_markup=get_user_main_menu())
         else:
             conn.close()
-            bot.answer_callback_query(call.id, f"Payment not received yet!\n{reason}", show_alert=True)
+            bot.answer_callback_query(call.id, f"{reason}", show_alert=True)
 
     elif data.startswith("cnl_pay_"):
         try:
@@ -1014,6 +1006,9 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
 
         upi_locked_url = f"upi://pay?pa={upi_target}&pn=MasterPayment&am={amt:.2f}&cu=INR&tr={utr_num}"
         qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={requests.utils.quote(upi_locked_url)}"
+
+        # Auto-store awaiting state so chat input immediately matches this order
+        user_states[f"{bot_id}_{uid}"] = {"step": "wait_manual_utr", "tx_id": utr_num}
 
         caption_txt = (
             "╔═══════════════════════════════╗\n"
@@ -1374,17 +1369,15 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
     st_data = user_states.get(key)
     txt = msg.text.strip()
 
-    if not st_data:
-        # Check if direct 12-digit UTR sent without prompt
-        if len(txt) == 12 and txt.isdigit():
-            conn = get_db()
-            cur = conn.cursor()
-            cur.execute("SELECT tx_id, bot_id, user_id, amount, tx_type, target_days FROM transactions WHERE user_id=? AND status='pending' ORDER BY created_at DESC LIMIT 1", (uid,))
-            t_row = cur.fetchone()
-            if t_row:
-                user_states[key] = {"step": "wait_manual_utr", "tx_id": t_row["tx_id"]}
-                st_data = user_states.get(key)
-            conn.close()
+    # If user directly sends 12-digit numeric UTR without clicking anything
+    if len(txt) == 12 and txt.isdigit():
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT tx_id, bot_id, user_id, amount, tx_type, target_days FROM transactions WHERE user_id=? AND status='pending' ORDER BY created_at DESC LIMIT 1", (uid,))
+        t_row = cur.fetchone()
+        conn.close()
+        if t_row:
+            st_data = {"step": "wait_manual_utr", "tx_id": t_row["tx_id"]}
 
     if not st_data:
         return
@@ -1447,7 +1440,7 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         dur_text = "👑 Lifetime" if days >= 30000 else f"{days} Days"
         succ_text = (
             "🎉 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗔𝗖𝗧𝗜𝗩𝗔𝗧𝗘𝗗 𝗦𝗨𝗖𝗖𝗘𝗦𝗦𝗙𝗨𝗟𝗟𝗬!\n\n"
-            f"🔑 Key: `{txt}`\n\n"
+            f"🔑 Key:\n`{txt}`\n\n"
             f"⏱️ Validity: {dur_text}\n"
             f"📅 Expiry: `{new_exp}`\n\n"
             "Your Automated UPI Gateway & Payment Verification is now fully active."
@@ -2013,13 +2006,13 @@ def five_second_keepalive_engine():
         try:
             pulse_counter += 1
             
-            # Local Internal Ping every 5 seconds
+            # Local internal ping
             try:
                 requests.get(f"http://127.0.0.1:{RENDER_PORT}/", timeout=3)
             except Exception:
                 pass
 
-            # Render External Domain Ping every 30 seconds
+            # Render external domain ping
             if pulse_counter % 6 == 0 and RENDER_EXTERNAL_URL:
                 url = RENDER_EXTERNAL_URL.rstrip('/')
                 if not url.startswith("http"):
@@ -2028,43 +2021,6 @@ def five_second_keepalive_engine():
                     requests.get(url, timeout=5)
                 except Exception:
                     pass
-
-            # Auto-Verify Pending Transactions in background
-            if pulse_counter % 2 == 0:
-                conn = get_db()
-                cur = conn.cursor()
-                cur.execute("SELECT tx_id, bot_id, user_id, amount, tx_type, target_days, bank_utr FROM transactions WHERE status='pending' LIMIT 5")
-                pending_txs = cur.fetchall()
-                for p in pending_txs:
-                    t_id = 0 if p["bot_id"] == 0 else p["bot_id"]
-                    
-                    cur.execute("SELECT active_gateway, fampay_email, fampay_app_pwd, paytm_mid FROM child_bots WHERE bot_id=?", (t_id,))
-                    b_conf = cur.fetchone()
-                    gw = b_conf["active_gateway"] if b_conf and b_conf["active_gateway"] else "paytm"
-                    ok = False
-
-                    if gw == "fampay" and b_conf and b_conf["fampay_email"] and b_conf["fampay_app_pwd"]:
-                        ok, _ = verify_fampay_gmail(b_conf["fampay_email"], b_conf["fampay_app_pwd"], p["amount"])
-                    elif gw == "paytm" and b_conf and b_conf["paytm_mid"] and p["bank_utr"]:
-                        ok, _ = verify_paytm_merchant(b_conf["paytm_mid"], p["bank_utr"], p["amount"])
-
-                    if ok:
-                        cur.execute("UPDATE transactions SET status='completed' WHERE tx_id=?", (p["tx_id"],))
-                        if p["tx_type"] == "buy_key":
-                            days = p["target_days"]
-                            key_code = generate_license_key(duration_days=days)
-                            cur.execute("UPDATE license_keys SET used_by_bot_id=? WHERE key_code=?", (p["bot_id"], key_code))
-                            try:
-                                tb = telebot.TeleBot(MASTER_BOT_TOKEN)
-                                dur_str = "👑 Lifetime" if days >= 30000 else f"{days} Days"
-                                tb.send_message(p["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗨𝗧𝗢-𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n\nHere is your Key:\n`{key_code}`\n\nValidity: {dur_str}\n\nEnter it in `/admin` ➔ License to activate!", parse_mode="Markdown")
-                            except Exception:
-                                pass
-                        else:
-                            cur.execute("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?",
-                                        (p["amount"], p["amount"], p["bot_id"], p["user_id"]))
-                        conn.commit()
-                conn.close()
 
             # Watchdog: Auto-Revive Crashed Bot Threads
             if pulse_counter % 3 == 0:
