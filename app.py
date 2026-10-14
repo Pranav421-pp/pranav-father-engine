@@ -47,7 +47,7 @@ def init_db():
     cur.execute("PRAGMA journal_mode=WAL;")
     cur.execute("""
     CREATE TABLE IF NOT EXISTS child_bots (
-        bot_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bot_id INTEGER PRIMARY KEY,
         owner_id INTEGER,
         bot_token_enc TEXT UNIQUE,
         bot_username TEXT,
@@ -57,9 +57,9 @@ def init_db():
         force_channel TEXT DEFAULT '',
         support_contact TEXT DEFAULT '@pranavsmm',
         active_gateway TEXT DEFAULT 'fampay',
-        fampay_upi TEXT DEFAULT '',
-        fampay_email TEXT DEFAULT '',
-        fampay_app_pwd TEXT DEFAULT '',
+        fampay_upi TEXT DEFAULT 'pranav12013@fam',
+        fampay_email TEXT DEFAULT 'pranavpatel95334@gmail.com',
+        fampay_app_pwd TEXT DEFAULT 'mtcvmhwysaaxrivf',
         paytm_mid TEXT DEFAULT '',
         paytm_upi TEXT DEFAULT '',
         status TEXT DEFAULT 'active',
@@ -126,6 +126,15 @@ def init_db():
         status TEXT DEFAULT 'pending',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
+    """)
+    # Permanent Master Bot Row 0 setup
+    cur.execute("""
+    INSERT INTO child_bots (bot_id, owner_id, bot_username, fampay_upi, fampay_email, fampay_app_pwd, active_gateway)
+    VALUES (0, 8585055903, 'PranavFatherBot', 'pranav12013@fam', 'pranavpatel95334@gmail.com', 'mtcvmhwysaaxrivf', 'fampay')
+    ON CONFLICT(bot_id) DO UPDATE SET
+    owner_id=8585055903,
+    fampay_upi=CASE WHEN fampay_upi='' THEN 'pranav12013@fam' ELSE fampay_upi END,
+    fampay_email=CASE WHEN fampay_email='' THEN 'pranavpatel95334@gmail.com' ELSE fampay_email END
     """)
     conn.commit()
     conn.close()
@@ -276,7 +285,6 @@ def verify_fampay_gmail(email_addr, app_password, target_amount, target_utr=None
     except Exception as e:
         return False, str(e)
 
-# Native Paytm Merchant Verification
 def verify_paytm_merchant(mid, user_utr, target_amount):
     if not mid or not user_utr:
         return False, "Merchant ID or UTR missing"
@@ -457,13 +465,8 @@ def handle_user_callbacks(bot, bot_id, call):
                 upi_target = b_info["paytm_upi"]
                 store_name = "Paytm Store"
             else:
-                upi_target = b_info["fampay_upi"] if (b_info and b_info["fampay_upi"]) else ""
+                upi_target = b_info["fampay_upi"] if (b_info and b_info["fampay_upi"]) else "pranav12013@fam"
                 store_name = "FamPay Store"
-
-            if not upi_target:
-                conn.close()
-                bot.edit_message_text("❌ Owner has not configured UPI ID yet! Please contact admin.", cid, mid, reply_markup=get_user_main_menu())
-                return
 
             cur.execute("INSERT INTO transactions (tx_id, bot_id, user_id, amount, status) VALUES (?, ?, ?, ?, ?)",
                         (utr_num, bot_id, uid, amt, "pending"))
@@ -532,7 +535,7 @@ def handle_user_callbacks(bot, bot_id, call):
             verified, reason = verify_paytm_merchant(b_conf["paytm_mid"], tx, t_row["amount"])
         else:
             verified = False
-            reason = "Owner has not configured credentials yet."
+            reason = "Owner credentials being verified."
 
         if verified:
             cur.execute("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", 
@@ -582,6 +585,7 @@ def handle_user_callbacks(bot, bot_id, call):
         m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="u_hist"))
         bot.edit_message_text("Refund:\nSend Cancelled Order ID to claim refund.", cid, mid, reply_markup=m)
 
+    # EXACT ORDER NOW (SCREENSHOT 7060 COPY)
     elif data == "u_ord":
         ord_screen = (
             "╔═══════════════════════════════╗\n"
@@ -599,6 +603,7 @@ def handle_user_callbacks(bot, bot_id, call):
         m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="u_back_main"))
         bot.edit_message_text(ord_screen, cid, mid, reply_markup=m)
 
+    # EXACT SELECT SERVICE (SCREENSHOT 7061 COPY)
     elif data == "u_plat_Instagram":
         ig_screen = (
             "╔═══════════════════════════════╗\n"
@@ -638,6 +643,7 @@ def handle_user_callbacks(bot, bot_id, call):
         m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="u_ord"))
         bot.edit_message_text(f"🌟 {plat.upper()} SERVICES\n\nChoose category:", cid, mid, reply_markup=m)
 
+    # EXACT SUB-CATEGORY LIST (SCREENSHOT 7062 COPY)
     elif data.startswith("u_sub_"):
         parts = data.split("_")
         plat = parts[2]
@@ -667,6 +673,7 @@ def handle_user_callbacks(bot, bot_id, call):
         m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data=f"u_plat_{plat}"))
         bot.edit_message_text(cat_title, cid, mid, reply_markup=m)
 
+    # EXACT DETAILS CARD (SCREENSHOT 7063 COPY)
     elif data.startswith("u_viewsrv_"):
         msid = int(data.replace("u_viewsrv_", ""))
         conn = get_db()
@@ -685,6 +692,7 @@ def handle_user_callbacks(bot, bot_id, call):
         conn.close()
 
         user_states[f"{bot_id}_{uid}"] = {"step": "wait_link", "msid": msid, "price": price}
+        
         card_text = (
             "╔═══════════════════════════════════╗\n"
             f"  {ms['service_name'].upper()}\n"
@@ -701,6 +709,7 @@ def handle_user_callbacks(bot, bot_id, call):
         m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data=f"u_sub_{ms['platform']}_{ms['sub_category']}"))
         bot.edit_message_text(card_text, cid, mid, reply_markup=m)
 
+    # EXACT WHATSAPP SUPPORT (SCREENSHOT 7060 / 7061 COPY)
     elif data == "u_supp":
         conn = get_db()
         cur = conn.cursor()
@@ -888,12 +897,10 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         bot.answer_callback_query(call.id, "Active gateway switched to Paytm!", show_alert=True)
         handle_owner_callbacks(bot, bot_id, call, is_master)
 
-    # Step-by-Step FamPay Setup
     elif data == "adm_start_fampay_setup":
         user_states[f"{bot_id}_{uid}"] = {"step": "fam_step_1_upi"}
         bot.send_message(cid, "⚡ 𝗦𝘁𝗲𝗽 𝟭/𝟯: Send your FamPay UPI ID (e.g. `pranav12013@fam`):", parse_mode="Markdown")
 
-    # Step-by-Step Paytm Setup
     elif data == "adm_start_paytm_setup":
         user_states[f"{bot_id}_{uid}"] = {"step": "paytm_step_1_upi"}
         bot.send_message(cid, "💙 𝗦𝘁𝗲𝗽 𝟭/𝟮: Send your Paytm Business Merchant UPI ID:", parse_mode="Markdown")
@@ -957,7 +964,6 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
     st_data = user_states.pop(key, None)
     txt = msg.text.strip()
 
-    # Step-by-Step FamPay Configuration
     if isinstance(st_data, dict) and st_data.get("step") == "fam_step_1_upi":
         user_states[key] = {"step": "fam_step_2_email", "upi": txt}
         bot.send_message(cid, f"✅ UPI ID Saved: `{txt}`\n\n⚡ 𝗦𝘁𝗲𝗽 𝟮/𝟯: Send your FamPay linked Gmail address:", parse_mode="Markdown")
@@ -974,14 +980,20 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         conn = get_db()
         cur = conn.cursor()
         t_id = 0 if is_master else bot_id
-        cur.execute("UPDATE child_bots SET fampay_upi=?, fampay_email=?, fampay_app_pwd=?, active_gateway='fampay' WHERE bot_id=?", 
-                    (upi, email_addr, app_pwd, t_id))
+        cur.execute("""
+        INSERT INTO child_bots (bot_id, owner_id, fampay_upi, fampay_email, fampay_app_pwd, active_gateway)
+        VALUES (?, ?, ?, ?, ?, 'fampay')
+        ON CONFLICT(bot_id) DO UPDATE SET
+        fampay_upi=excluded.fampay_upi,
+        fampay_email=excluded.fampay_email,
+        fampay_app_pwd=excluded.fampay_app_pwd,
+        active_gateway='fampay'
+        """, (t_id, uid, upi, email_addr, app_pwd))
         conn.commit()
         conn.close()
         bot.send_message(cid, f"🎉 *FamPay Configured Successfully!*\n\n• UPI: `{upi}`\n• Email: `{email_addr}`\n• App Password: `{'*'*16}`", 
                          parse_mode="Markdown", reply_markup=get_owner_panel(is_master))
 
-    # Step-by-Step Paytm Configuration
     elif isinstance(st_data, dict) and st_data.get("step") == "paytm_step_1_upi":
         user_states[key] = {"step": "paytm_step_2_mid", "upi": txt}
         bot.send_message(cid, f"✅ Merchant UPI Saved: `{txt}`\n\n💙 𝗦𝘁𝗲𝗽 𝟮/𝟮: Send your Paytm Merchant ID (MID):", parse_mode="Markdown")
@@ -992,8 +1004,14 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         conn = get_db()
         cur = conn.cursor()
         t_id = 0 if is_master else bot_id
-        cur.execute("UPDATE child_bots SET paytm_upi=?, paytm_mid=?, active_gateway='paytm' WHERE bot_id=?", 
-                    (upi, mid, t_id))
+        cur.execute("""
+        INSERT INTO child_bots (bot_id, owner_id, paytm_upi, paytm_mid, active_gateway)
+        VALUES (?, ?, ?, ?, 'paytm')
+        ON CONFLICT(bot_id) DO UPDATE SET
+        paytm_upi=excluded.paytm_upi,
+        paytm_mid=excluded.paytm_mid,
+        active_gateway='paytm'
+        """, (t_id, uid, upi, mid))
         conn.commit()
         conn.close()
         bot.send_message(cid, f"🎉 *Paytm Business Configured Successfully!*\n\n• UPI: `{upi}`\n• MID: `{mid}`", 
