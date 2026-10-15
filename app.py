@@ -23,7 +23,7 @@ from cryptography.fernet import Fernet
 RENDER_PORT = int(os.environ.get("PORT", 8081))
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "").strip()
 MASTER_BOT_TOKEN = os.environ.get("MASTER_BOT_TOKEN", "").strip()
-SUPER_ADMIN_ID = 8585055903 # Pranav Patel (प्रणव जी - गॉड मास्टर)
+SUPER_ADMIN_ID = 8585055903 # Pranav Patel (प्रणव जी - इकलौता गॉड मास्टर)
 MAIN_PANEL_URL = os.environ.get("MAIN_PANEL_URL", "https://pranavsmm.shop/api/v2")
 MAIN_PANEL_API_KEY = os.environ.get("MAIN_PANEL_API_KEY", "").strip()
 
@@ -136,7 +136,7 @@ def safe_edit(bot, text, chat_id, message_id, reply_markup=None):
     except: return safe_send(bot, chat_id, text, reply_markup=reply_markup)
 
 def generate_license_key(duration_days=30):
-    k = f"{random.randint(7000000000, 8999999999)}:AA{''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(35))}"
+    k = f"PRANAV-KEY-{random.randint(700000, 999999)}:AA{''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(25))}"
     execute_query("INSERT INTO license_keys (key_code, duration_days) VALUES (?, ?)", (k, duration_days))
     return k
 
@@ -771,7 +771,7 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         return
 
 # ==========================================
-# 🤖 BOT THREAD RUNNERS & AUTO POLLER
+# 🤖 BULLETPROOF 24/7 THREAD & POLLER RUNNERS
 # ==========================================
 def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
     while True:
@@ -811,8 +811,10 @@ def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
             @cbot.message_handler(func=lambda m: True and not m.text.startswith('/'))
             def c_txts(m): handle_text_inputs(cbot, bot_id, m, is_master=(m.from_user.id==SUPER_ADMIN_ID))
 
-            cbot.infinity_polling(timeout=20, long_polling_timeout=15, skip_pending=True)
-        except: time.sleep(2)
+            cbot.infinity_polling(timeout=30, long_polling_timeout=20, skip_pending=True)
+        except Exception as e:
+            print(f"[CHILD BOT ERROR @{bot_username}]: {e}")
+            time.sleep(3)
 
 def run_master_bot_loop():
     global master_is_running
@@ -845,10 +847,11 @@ def run_master_bot_loop():
             def m_txts(msg): handle_text_inputs(master_bot, 0, msg, is_master=True)
 
             master_is_running = True
-            master_bot.infinity_polling(timeout=20, long_polling_timeout=15, skip_pending=True)
-        except:
+            master_bot.infinity_polling(timeout=30, long_polling_timeout=20, skip_pending=True)
+        except Exception as e:
+            print(f"[MASTER BOT ERROR]: {e}")
             master_is_running = False
-            time.sleep(2)
+            time.sleep(3)
 
 def autonomous_smm_payment_poller():
     time.sleep(5)
@@ -869,14 +872,15 @@ def autonomous_smm_payment_poller():
                         else:
                             execute_query("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", (p["amount"], p["amount"], p["bot_id"], p["user_id"]))
                             if t_bot: safe_send(t_bot, p["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗨𝗧𝗢-𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n₹{p['amount']} credited.")
-        except: pass
-        time.sleep(10) # बैटरी और CPU बचाने के लिए समय अंतराल को 10 सेकंड कर दिया गया है
+        except Exception as e:
+            print(f"[POLLER ERROR]: {e}")
+        time.sleep(10)
 
 threading.Thread(target=run_master_bot_loop, daemon=True).start()
 threading.Thread(target=autonomous_smm_payment_poller, daemon=True).start()
 
 @app.route('/')
-def home(): return "Pranav God Master Engine v16.0 Active", 200
+def home(): return "Pranav God Master Engine v18.0 Active", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=RENDER_PORT, use_reloader=False)
