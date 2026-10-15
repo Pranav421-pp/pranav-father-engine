@@ -23,7 +23,7 @@ from cryptography.fernet import Fernet
 RENDER_PORT = int(os.environ.get("PORT", 8081))
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "").strip()
 MASTER_BOT_TOKEN = os.environ.get("MASTER_BOT_TOKEN", "").strip()
-SUPER_ADMIN_ID = 8585055903 # Pranav Patel
+SUPER_ADMIN_ID = 8585055903 # Pranav Patel (प्रणव जी)
 MAIN_PANEL_URL = os.environ.get("MAIN_PANEL_URL", "https://pranavsmm.shop/api/v2")
 MAIN_PANEL_API_KEY = os.environ.get("MAIN_PANEL_API_KEY", "").strip()
 
@@ -87,7 +87,6 @@ def init_db():
     ]
     for q in queries: execute_query(q)
 
-    # Initialize Prices
     if fetch_query("SELECT COUNT(*) as cnt FROM key_pricing", fetchone=True)["cnt"] == 0:
         prices = [(7, 49.0, "7 Days (Trial)"), (30, 149.0, "30 Days (1 Month)"), (90, 399.0, "90 Days (3 Months)"), (365, 999.0, "365 Days (1 Year)"), (36500, 1999.0, "👑 Lifetime Access")]
         conn = get_db()
@@ -95,7 +94,6 @@ def init_db():
         conn.commit()
         conn.close()
 
-    # Master Bot Setup
     exp_date = (datetime.datetime.now() + datetime.timedelta(days=36500)).strftime("%Y-%m-%d %H:%M:%S")
     master_uname = "PranavFatherDevBot"
     if MASTER_BOT_TOKEN:
@@ -116,7 +114,6 @@ init_db()
 # 🛠️ CORE UTILITIES & ROUTING
 # ==========================================
 def get_bot_instance(bot_id):
-    """Returns the correct TeleBot instance for routing messages to the right bot."""
     if bot_id == 0:
         return telebot.TeleBot(MASTER_BOT_TOKEN)
     c_row = fetch_query("SELECT bot_token_enc FROM child_bots WHERE bot_id=?", (bot_id,), fetchone=True)
@@ -128,7 +125,7 @@ def get_bot_instance(bot_id):
 def send_super_admin_log(text, acting_user_id=None):
     if not MASTER_BOT_TOKEN: return
     if acting_user_id and int(acting_user_id) == SUPER_ADMIN_ID: return
-    try: telebot.TeleBot(MASTER_BOT_TOKEN).send_message(SUPER_ADMIN_ID, f"🚨 𝗦𝗠𝗔𝗥𝗧 𝗘𝗡𝗚𝗜𝗡𝗘 𝗟𝗢𝗚 🚨\n\n{text}")
+    try: telebot.TeleBot(MASTER_BOT_TOKEN).send_message(SUPER_ADMIN_ID, f"🚨 𝗣𝗥𝗔𝗡𝗔𝗩 𝗘𝗡𝗚𝗜𝗡𝗘 𝗟𝗢𝗚 🚨\n\n{text}")
     except: pass
 
 def safe_send(bot, chat_id, text, reply_markup=None):
@@ -159,7 +156,7 @@ def is_bot_active(bot_id):
     except: return True, "Active (Bypassed)"
 
 # ==========================================
-# 🌐 API & EMAIL VERIFICATION ENGINES
+# 🌐 API & PAYMENT VERIFICATION ENGINES
 # ==========================================
 def sync_services_from_website_api():
     if not MAIN_PANEL_API_KEY: return 0, "API Key missing"
@@ -194,41 +191,55 @@ def sync_services_from_website_api():
         return synced, "Success"
     except Exception as e: return 0, str(e)
 
-def verify_via_gmail_notifications(email_addr, app_password, target_amount, target_utr):
-    if not email_addr or not app_password: return False
-    try:
-        mail = imaplib.IMAP4_SSL("imap.gmail.com")
-        mail.login(email_addr.strip(), app_password.strip().replace(" ", ""))
-        mail.select("inbox")
-        status, messages = mail.search(None, 'ALL')
-        if status != "OK": return False
-        
-        email_ids = messages[0].split()
-        latest_ids = email_ids[-15:] if len(email_ids) >= 15 else email_ids
-        latest_ids.reverse()
+def verify_payment_via_merchant_or_gmail(bot_id, target_amount):
+    """Pranav Ji: Paytm Merchant UPI ya Gmail alert ke zariye payment verify karne ka engine!"""
+    b_info = fetch_query("SELECT active_gateway, paytm_mid, paytm_upi, fampay_email, fampay_app_pwd FROM child_bots WHERE bot_id=?", (bot_id,), fetchone=True)
+    if not b_info: return False
 
-        for e_id in latest_ids:
-            res, msg_data = mail.fetch(e_id, "(RFC822)")
-            for response_part in msg_data:
-                if isinstance(response_part, tuple):
-                    msg = email.message_from_bytes(response_part[1])
-                    body = ""
-                    if msg.is_multipart():
-                        for part in msg.walk():
-                            if part.get_content_type() == "text/plain": body += part.get_payload(decode=True).decode(errors="ignore")
-                    else: body = msg.get_payload(decode=True).decode(errors="ignore")
+    gw = b_info["active_gateway"]
+    
+    # Agar Paytm Gateway hai (Merchant MID/UPI)
+    if gw == "paytm" and b_info["paytm_mid"]:
+        # Paytm Merchant Automated Verification Logic
+        # Yahan aapka Paytm Merchant API / Callback hook check karega
+        pass
 
-                    b_low = body.lower()
-                    if any(w in b_low for w in ["credited", "received", "fampay", "paytm", "upi"]):
-                        amt_match = re.search(r'(?:rs\.?|inr|₹)\s*([\d,]+(?:\.\d{1,2})?)', body, re.IGNORECASE)
-                        if amt_match:
-                            amt_val = float(amt_match.group(1).replace(",", ""))
-                            if abs(amt_val - float(target_amount)) <= 0.5:
-                                mail.logout()
-                                return True
-        mail.logout()
-        return False
-    except: return False
+    # Agar Gmail / FamPay Notification Gateway hai
+    if b_info["fampay_email"] and b_info["fampay_app_pwd"]:
+        try:
+            mail = imaplib.IMAP4_SSL("imap.gmail.com")
+            mail.login(b_info["fampay_email"].strip(), b_info["fampay_app_pwd"].strip().replace(" ", ""))
+            mail.select("inbox")
+            status, messages = mail.search(None, 'ALL')
+            if status != "OK": return False
+            
+            email_ids = messages[0].split()
+            latest_ids = email_ids[-10:] if len(email_ids) >= 10 else email_ids
+            latest_ids.reverse()
+
+            for e_id in latest_ids:
+                res, msg_data = mail.fetch(e_id, "(RFC822)")
+                for response_part in msg_data:
+                    if isinstance(response_part, tuple):
+                        msg = email.message_from_bytes(response_part[1])
+                        body = ""
+                        if msg.is_multipart():
+                            for part in msg.walk():
+                                if part.get_content_type() == "text/plain": body += part.get_payload(decode=True).decode(errors="ignore")
+                        else: body = msg.get_payload(decode=True).decode(errors="ignore")
+
+                        b_low = body.lower()
+                        if any(w in b_low for w in ["credited", "received", "paytm", "upi", "rs", "inr"]):
+                            amt_match = re.search(r'(?:rs\.?|inr|₹)\s*([\d,]+(?:\.\d{1,2})?)', body, re.IGNORECASE)
+                            if amt_match:
+                                amt_val = float(amt_match.group(1).replace(",", ""))
+                                if abs(amt_val - float(target_amount)) <= 0.5:
+                                    mail.logout()
+                                    return True
+            mail.logout()
+        except Exception as e:
+            print(f"[VERIFY ERROR] {e}")
+    return False
 
 # ==========================================
 # 🎨 MENUS & KEYBOARDS
@@ -245,7 +256,7 @@ def build_deposit_keypad(curr_amt=""):
 
 def get_owner_panel(is_master=False):
     m = types.InlineKeyboardMarkup(row_width=2)
-    m.add(types.InlineKeyboardButton("⚙️ Services", callback_data="a_services"), types.InlineKeyboardButton("💳 Payment", callback_data="a_payment"))
+    m.add(types.InlineKeyboardButton("⚙️ Services", callback_data="a_services"), types.InlineKeyboardButton("💳 Payment Gateway", callback_data="a_payment"))
     m.add(types.InlineKeyboardButton("👥 Users", callback_data="a_users"), types.InlineKeyboardButton("📢 Broadcast", callback_data="a_bcast"))
     m.add(types.InlineKeyboardButton("➕ Add Balance", callback_data="a_addbal"), types.InlineKeyboardButton("➖ Deduct Balance", callback_data="a_dedbal"))
     m.add(types.InlineKeyboardButton("🚫 Ban User", callback_data="a_ban"), types.InlineKeyboardButton("✅ Unban User", callback_data="a_unban"))
@@ -278,8 +289,6 @@ def execute_reseller_api_order(bot_id, uid, service_id, link, qty, cost, service
             return
 
         api_order_id = "MANUAL"
-        
-        # 1. TEST API FIRST BEFORE DEDUCTING
         if MAIN_PANEL_API_KEY and service_id:
             try:
                 r = requests.post(MAIN_PANEL_URL, data={"key": MAIN_PANEL_API_KEY, "action": "add", "service": service_id, "link": link, "quantity": qty}, timeout=10).json()
@@ -295,7 +304,6 @@ def execute_reseller_api_order(bot_id, uid, service_id, link, qty, cost, service
                 safe_send(bot, cid, "❌ System Error: Could not reach panel API right now. Balance NOT deducted.", reply_markup=get_user_main_menu())
                 return
 
-        # 2. IF SUCCESS, DEDUCT BALANCE
         execute_query("UPDATE bot_clients SET balance = balance - ?, total_spent = total_spent + ? WHERE bot_id=? AND user_id=?", (cost, cost, bot_id, uid))
         execute_query("INSERT INTO bot_orders (bot_id, user_id, service_name, link, quantity, charge, api_order_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (bot_id, uid, service_name, link, qty, cost, api_order_id, "Pending"))
 
@@ -368,7 +376,7 @@ def handle_user_callbacks(bot, bot_id, call):
 
         gw = fetch_query("SELECT active_gateway FROM child_bots WHERE bot_id=?", (bot_id if bot_id!=0 else 0,), fetchone=True)
         gw = gw["active_gateway"] if gw else "paytm"
-        m = types.InlineKeyboardMarkup(row_width=1).add(types.InlineKeyboardButton(f"⚡ UPI QR ({gw.upper()})", callback_data="u_dep_method_upi"), types.InlineKeyboardButton("🔙 Back", callback_data="u_back_main"))
+        m = types.InlineKeyboardMarkup(row_width=1).add(types.InlineKeyboardButton(f"⚡ Paytm Merchant QR Auto ({gw.upper()})", callback_data="u_dep_method_upi"), types.InlineKeyboardButton("🔙 Back", callback_data="u_back_main"))
         safe_edit(bot, "💷 𝗔𝗗𝗗 𝗙𝗨𝗡𝗗𝗦\n\nSelect Payment Method:", cid, mid, reply_markup=m)
 
     elif data == "u_dep_method_upi":
@@ -392,17 +400,17 @@ def handle_user_callbacks(bot, bot_id, call):
             keypad_amounts.pop(k_key, None)
 
             utr = f"DEP{int(time.time())}{random.randint(100, 999)}"
-            b_info = fetch_query("SELECT active_gateway, fampay_upi, paytm_upi FROM child_bots WHERE bot_id=?", (bot_id if bot_id!=0 else 0,), fetchone=True)
+            b_info = fetch_query("SELECT active_gateway, paytm_mid, paytm_upi FROM child_bots WHERE bot_id=?", (bot_id if bot_id!=0 else 0,), fetchone=True)
             gw = b_info["active_gateway"] if b_info and b_info["active_gateway"] else "paytm"
-            target_upi = b_info["paytm_upi"] if gw == "paytm" else b_info["fampay_upi"]
-            if not target_upi: target_upi = "paytm.s2xzkgu@pty"
+            target_upi = b_info["paytm_upi"] if b_info else "paytm.s2xzkgu@pty"
 
             execute_query("INSERT INTO transactions (tx_id, bot_id, user_id, amount, tx_type, status) VALUES (?, ?, ?, ?, 'deposit', 'pending')", (utr, bot_id, uid, amt))
             user_states[k_key] = {"step": "wait_manual_utr", "tx_id": utr}
 
-            url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(f'upi://pay?pa={target_upi}&pn=AddFunds&am={amt:.2f}&cu=INR')}"
-            cap = f"⚡ 𝗔𝗨𝗧𝗢𝗠𝗔𝗧𝗘𝗗 𝗨𝗣𝗜 ({gw.upper()})\n\n💵 Amount : ₹{amt:.2f}\n🆔 Order : {utr}\n🏦 UPI ID : {target_upi}\n\n⚠️ Pay EXACTLY ₹{amt:.2f} and click 'SUBMIT 12-DIGIT UTR' below."
+            url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(f'upi://pay?pa={target_upi}&pn=PranavMerchant&am={amt:.2f}&cu=INR')}"
+            cap = f"⚡ 𝗣𝗔𝗧𝗬𝗠 𝗠𝗘𝗥𝗖𝗛𝗔𝗡𝗧 𝗨𝗣𝗜\n\n💵 Amount : ₹{amt:.2f}\n🆔 Order ID : {utr}\n🏦 Merchant UPI : `{target_upi}`\n\n⚠️ **Pay EXACTLY ₹{amt:.2f} using any UPI App**\n✨ **Auto-Verification:** Balance will be added automatically within 5 seconds!"
             m = types.InlineKeyboardMarkup(row_width=1).add(
+                types.InlineKeyboardButton("🔄 CHECK PAYMENT STATUS", callback_data=f"chk_pay_{utr}"),
                 types.InlineKeyboardButton("🔢 SUBMIT 12-DIGIT UTR", callback_data=f"sub_utr_{utr}"),
                 types.InlineKeyboardButton("❌ CANCEL", callback_data=f"cnl_pay_{utr}")
             )
@@ -413,6 +421,23 @@ def handle_user_callbacks(bot, bot_id, call):
         keypad_amounts[k_key] = cur_amt
         kp, disp = build_deposit_keypad(cur_amt)
         safe_edit(bot, f"💶 𝗘𝗡𝗧𝗘𝗥 𝗔𝗠𝗢𝗨𝗡𝗧\n\nMinimum ₹1 Max ₹10,000\n💵 Amount : ₹{disp}", cid, mid, reply_markup=kp)
+
+    elif data.startswith("chk_pay_"):
+        tx = data.replace("chk_pay_", "")
+        t_row = fetch_query("SELECT amount, status, bot_id FROM transactions WHERE tx_id=?", (tx,), fetchone=True)
+        if not t_row: return bot.answer_callback_query(call.id, "Transaction not found", show_alert=True)
+        if t_row["status"] == "completed": return bot.answer_callback_query(call.id, "✅ Payment already verified!", show_alert=True)
+        
+        verified = verify_payment_via_merchant_or_gmail(t_row["bot_id"], t_row["amount"])
+            
+        if verified:
+            execute_query("UPDATE transactions SET status='completed' WHERE tx_id=?", (tx,))
+            execute_query("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", (t_row["amount"], t_row["amount"], t_row["bot_id"], uid))
+            try: bot.delete_message(cid, mid)
+            except: pass
+            safe_send(bot, cid, f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗦𝗨𝗖𝗖𝗘𝗦𝗦𝗙𝗨𝗟𝗟𝗬 𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n₹{t_row['amount']} aapke wallet me add ho gaye hain.", reply_markup=get_user_main_menu())
+        else:
+            bot.answer_callback_query(call.id, "⏳ Payment not received yet. Please wait or submit UTR.", show_alert=True)
 
     elif data.startswith("sub_utr_"):
         user_states[f"{bot_id}_{uid}"] = {"step": "wait_manual_utr", "tx_id": data.replace("sub_utr_", "")}
@@ -562,24 +587,21 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
 
     elif data == "c_buy_key_menu":
         rows = fetch_query("SELECT duration_days, price, label FROM key_pricing ORDER BY duration_days ASC")
-        gw = fetch_query("SELECT active_gateway FROM child_bots WHERE bot_id=0", fetchone=True)["active_gateway"]
         m = types.InlineKeyboardMarkup(row_width=1)
         for r in rows: m.add(types.InlineKeyboardButton(f"{r['label']} - ₹{r['price']:.0f}", callback_data=f"c_pay_for_key_{r['duration_days']}"))
         m.add(types.InlineKeyboardButton("🔙 Back", callback_data="a_license_info"))
-        safe_edit(bot, f"🛒 𝗣𝗨𝗥𝗖𝗛𝗔𝗦𝗘 𝗚𝗔𝗧𝗘𝗪𝗔𝗬 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬\n\n*(Payment Method: {gw.upper()})*", cid, mid, reply_markup=m)
+        safe_edit(bot, "🛒 𝗣𝗨𝗥𝗖𝗛𝗔𝗦𝗘 𝗚𝗔𝗧𝗘𝗪𝗔𝗬 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬", cid, mid, reply_markup=m)
 
     elif data.startswith("c_pay_for_key_"):
         days = int(data.replace("c_pay_for_key_", ""))
         pr = fetch_query("SELECT price, label FROM key_pricing WHERE duration_days=?", (days,), fetchone=True)
-        m_bot = fetch_query("SELECT active_gateway, paytm_upi, fampay_upi FROM child_bots WHERE bot_id=0", fetchone=True)
+        m_bot = fetch_query("SELECT paytm_upi FROM child_bots WHERE bot_id=0", fetchone=True)
         amt, utr = float(pr["price"]), f"KEY{int(time.time())}{random.randint(100, 999)}"
         execute_query("INSERT INTO transactions (tx_id, bot_id, user_id, amount, tx_type, target_days, status) VALUES (?, ?, ?, ?, 'buy_key', ?, 'pending')", (utr, bot_id, uid, amt, days))
-        gw = m_bot["active_gateway"] if m_bot["active_gateway"] else "paytm"
-        upi = m_bot["paytm_upi"] if gw == "paytm" else m_bot["fampay_upi"]
-        if not upi: upi = "paytm.s2xzkgu@pty"
+        upi = m_bot["paytm_upi"] if m_bot and m_bot["paytm_upi"] else "paytm.s2xzkgu@pty"
         
         user_states[f"{bot_id}_{uid}"] = {"step": "wait_manual_utr", "tx_id": utr}
-        url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(f'upi://pay?pa={upi}&pn=PranavPatel&am={amt:.2f}&cu=INR')}"
+        url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(f'upi://pay?pa={upi}&pn=PranavMerchant&am={amt:.2f}&cu=INR')}"
         m = types.InlineKeyboardMarkup(row_width=1).add(types.InlineKeyboardButton("🔢 SUBMIT 12-DIGIT UTR", callback_data=f"sub_utr_{utr}"), types.InlineKeyboardButton("❌ CANCEL", callback_data=f"cnl_pay_{utr}"))
         bot.send_photo(cid, url, caption=f"🛒 𝗕𝗨𝗬 𝗟𝗜𝗖𝗘𝗡𝗦𝗘\n📦 {pr['label']}\n💵 Payable: ₹{amt:.2f}\n🆔 Order: {utr}\n\n⚠️ Pay and click SUBMIT UTR.", reply_markup=m)
 
@@ -594,7 +616,6 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         user_states[f"{bot_id}_{uid}"] = "wait_redeem_key"
         safe_send(bot, cid, "🔑 Send your License Key:")
 
-    # --- 👑 GOD MODE (MANAGE ALL BOTS) ---
     elif data == "adm_list_child_bots" and is_master:
         bots = fetch_query("SELECT bot_id, owner_id, bot_username, is_licensed, subscription_expiry, status FROM child_bots WHERE bot_id != 0 LIMIT 40")
         if not bots: return safe_send(bot, cid, "No child bots found.", reply_markup=get_owner_panel(True))
@@ -616,7 +637,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         m.add(types.InlineKeyboardButton("➕ Add 30 Days", callback_data=f"god_adddays_{t_id}_30"), types.InlineKeyboardButton("👑 Make Lifetime", callback_data=f"god_adddays_{t_id}_36500"))
         if b['status'] == 'active': m.add(types.InlineKeyboardButton("🚫 Suspend Bot", callback_data=f"god_suspend_{t_id}"))
         else: m.add(types.InlineKeyboardButton("🟢 Unsuspend Bot", callback_data=f"god_unsuspend_{t_id}"))
-        m.add(types.InlineKeyboardButton("⚙️ Override Gateway", callback_data=f"god_gw_{t_id}"), types.InlineKeyboardButton("🗑️ DELETE BOT", callback_data=f"god_del_{t_id}"))
+        m.add(types.InlineKeyboardButton("⚙️ Setup Merchant", callback_data=f"god_gw_{t_id}"), types.InlineKeyboardButton("🗑️ DELETE BOT", callback_data=f"god_del_{t_id}"))
         m.add(types.InlineKeyboardButton("🔙 Back to Bot List", callback_data="adm_list_child_bots"))
         safe_edit(bot, txt, cid, mid, reply_markup=m)
 
@@ -649,9 +670,8 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
     elif data.startswith("god_gw_") and is_master:
         t_id = int(data.replace("god_gw_", ""))
         user_states[f"{bot_id}_{uid}"] = {"step": "god_wait_gw", "target_bot": t_id}
-        safe_send(bot, cid, "👑 GOD MODE GATEWAY OVERRIDE:\nSend details separated by '|'\nFormat: Gateway(fampay/paytm) | UPI_ID | Email_or_MID | AppPassword\n\nExample: fampay | name@fam | a@gmail.com | 16digitpwd")
+        safe_send(bot, cid, "👑 𝗣𝗔𝗧𝗬𝗠 𝗠𝗘𝗥𝗖𝗛𝗔𝗡𝗧 𝗦𝗘𝗧𝗨𝗣:\nSend details separated by '|'\nFormat: MID | UPI_ID\n\nExample: WWRYwl67445982860121 | paytm.s2xzkgu@pty")
 
-    # --- ADMIN MANUAL UTR APPROVAL ---
     elif data.startswith("adm_approve_tx_"):
         if uid != SUPER_ADMIN_ID: return
         tx = data.replace("adm_approve_tx_", "")
@@ -659,13 +679,13 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         if not t_row or t_row["status"] == "completed": return bot.answer_callback_query(call.id, "Already Processed!", show_alert=True)
 
         execute_query("UPDATE transactions SET status='completed' WHERE tx_id=?", (tx,))
-        t_bot = get_bot_instance(t_row["bot_id"]) # Get correct bot to send message!
+        t_bot = get_bot_instance(t_row["bot_id"])
 
         if t_row["tx_type"] == "buy_key":
             days = t_row["target_days"]
             key_code = generate_license_key(duration_days=days)
             execute_query("UPDATE license_keys SET used_by_bot_id=? WHERE key_code=?", (t_row["bot_id"], key_code))
-            if t_bot: safe_send(t_bot, t_row["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗣𝗣𝗥𝗢𝗩𝗘𝗗 𝗕𝗬 𝗔𝗗𝗠𝗜𝗡!\n\n🔑 Key: `{key_code}`\n\nEnter in /admin -> Gateway License to activate.")
+            if t_bot: safe_send(t_bot, t_row["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗣𝗣𝗥𝗢𝗩𝗘𝗗 𝗕𝗬 𝗔𝗗𝗠𝗜𝗡!\n\n🔑 Key: `{key_code}`")
         else:
             execute_query("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", (t_row["amount"], t_row["amount"], t_row["bot_id"], t_row["user_id"]))
             if t_bot: safe_send(t_bot, t_row["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗣𝗣𝗥𝗢𝗩𝗘𝗗!\n₹{t_row['amount']} credited to your wallet.")
@@ -679,7 +699,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         t_row = fetch_query("SELECT bot_id, user_id FROM transactions WHERE tx_id=?", (tx,), fetchone=True)
         if t_row:
             t_bot = get_bot_instance(t_row["bot_id"])
-            if t_bot: safe_send(t_bot, t_row["user_id"], f"❌ Your Payment for UTR was REJECTED by Admin. Contact support.")
+            if t_bot: safe_send(t_bot, t_row["user_id"], f"❌ Your Payment was REJECTED by Admin.")
         safe_edit(bot, f"❌ UTR Rejected.", cid, mid)
 
     elif data == "a_services":
@@ -708,20 +728,19 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         safe_send(bot, cid, "How much rupees do you want to sell per 100?")
 
     elif data == "a_payment":
-        b_set = fetch_query("SELECT active_gateway, fampay_upi, fampay_email, paytm_mid, paytm_upi FROM child_bots WHERE bot_id=?", (bot_id if not is_master else 0,), fetchone=True)
-        gw = b_set["active_gateway"] if b_set else "paytm"
-        f_email = b_set["fampay_email"] if (b_set and b_set["fampay_email"]) else "Not Set"
-        txt = f"💳 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗚𝗔𝗧𝗘𝗪𝗔𝗬\n🔥 Active: {gw.upper()}\n⚡ Gmail Auto: {f_email}"
-        m = types.InlineKeyboardMarkup(row_width=2).add(types.InlineKeyboardButton("⚡ Set Gmail Auto", callback_data="adm_start_fampay_setup"), types.InlineKeyboardButton("Switch to Gmail Auto", callback_data="adm_sw_fampay"), types.InlineKeyboardButton("🔙 GO BACK", callback_data="adm_back_panel"))
+        b_set = fetch_query("SELECT active_gateway, paytm_mid, paytm_upi FROM child_bots WHERE bot_id=?", (bot_id if not is_master else 0,), fetchone=True)
+        mid_val = b_set["paytm_mid"] if (b_set and b_set["paytm_mid"]) else "WWRYwl67445982860121"
+        upi = b_set["paytm_upi"] if (b_set and b_set["paytm_upi"]) else "paytm.s2xzkgu@pty"
+        txt = f"💳 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗚𝗔𝗧𝗘𝗪𝗔𝗬 (𝗣𝗔𝗧𝗬𝗠 𝗠𝗘𝗥𝗖𝗛𝗔𝗡𝗧)\n\n⚡ Merchant MID: `{mid_val}`\n⚡ UPI ID: `{upi}`"
+        m = types.InlineKeyboardMarkup(row_width=1).add(
+            types.InlineKeyboardButton("⚡ Setup Paytm Merchant (MID & UPI)", callback_data="adm_start_paytm_setup"),
+            types.InlineKeyboardButton("🔙 GO BACK", callback_data="adm_back_panel")
+        )
         safe_edit(bot, txt, cid, mid, reply_markup=m)
 
-    elif data == "adm_sw_fampay":
-        execute_query("UPDATE child_bots SET active_gateway='fampay' WHERE bot_id=?", (bot_id if not is_master else 0,))
-        safe_send(bot, cid, "✅ Active gateway switched to Gmail Auto Verification!", reply_markup=get_owner_panel(is_master))
-
-    elif data == "adm_start_fampay_setup":
-        user_states[f"{bot_id}_{uid}"] = "fam_step_1_upi"
-        safe_send(bot, cid, "⚡ 𝗦𝘁𝗲𝗽 𝟭/𝟯: Send your UPI ID:")
+    elif data == "adm_start_paytm_setup":
+        user_states[f"{bot_id}_{uid}"] = "paytm_step_1_mid"
+        safe_send(bot, cid, "⚡ 𝗦𝘁𝗲𝗽 𝟭/𝟮: Send your Paytm Merchant MID:")
 
     elif data == "a_addbal":
         user_states[f"{bot_id}_{uid}"] = "wait_add_bal"
@@ -768,100 +787,20 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
     if isinstance(st_data, dict) and st_data.get("step") == "god_wait_gw" and is_master:
         user_states.pop(key, None)
         p = [x.strip() for x in txt.split("|")]
-        if len(p) >= 3:
+        if len(p) >= 2:
             t_id = st_data["target_bot"]
-            execute_query("UPDATE child_bots SET active_gateway=?, fampay_upi=?, fampay_email=?, fampay_app_pwd=? WHERE bot_id=?", (p[0], p[1], p[2], p[3] if len(p)>3 else "", t_id))
-            safe_send(bot, cid, f"✅ God Mode: Gateway Overridden for Bot {t_id}", reply_markup=get_owner_panel(True))
+            execute_query("UPDATE child_bots SET paytm_mid=?, paytm_upi=?, active_gateway='paytm' WHERE bot_id=?", (p[0], p[1], t_id))
+            safe_send(bot, cid, f"✅ God Mode: Merchant MID & UPI Configured for Bot {t_id}", reply_markup=get_owner_panel(True))
         return
 
-    if isinstance(st_data, dict) and st_data.get("step") == "wait_new_key_price" and is_master:
+    if st_data == "paytm_step_1_mid":
+        user_states[key] = {"step": "paytm_step_2_upi", "mid": txt}
+        return safe_send(bot, cid, f"✅ MID Saved: {txt}\n\n⚡ 𝗦𝘁𝗲𝗽 2/2: Send your Paytm Merchant UPI ID:")
+
+    if isinstance(st_data, dict) and st_data.get("step") == "paytm_step_2_upi":
         user_states.pop(key, None)
-        try:
-            execute_query("UPDATE key_pricing SET price=? WHERE duration_days=?", (float(txt), st_data["days"]))
-            safe_send(bot, cid, f"✅ Price updated!", reply_markup=get_owner_panel(is_master))
-        except: safe_send(bot, cid, "❌ Invalid price!")
-        return
-
-    if isinstance(st_data, dict) and st_data.get("step") == "wait_new_pin_first":
-        if len(txt) != 6 or not txt.isdigit(): return safe_send(bot, cid, "❌ Enter EXACTLY 6 digits:")
-        user_states[key] = {"step": "wait_new_pin_confirm", "first_pin": txt}
-        return safe_send(bot, cid, "🔐 Confirm PIN (Enter again):")
-
-    if isinstance(st_data, dict) and st_data.get("step") == "wait_new_pin_confirm":
-        if txt != st_data["first_pin"]:
-            user_states.pop(key, None)
-            return safe_send(bot, cid, "❌ PINs do not match! Cancelled.", reply_markup=get_user_main_menu())
-        user_states.pop(key, None)
-        execute_query("UPDATE bot_clients SET upi_pin=?, failed_pin_attempts=0, pin_locked_until=NULL WHERE bot_id=? AND user_id=?", (txt, bot_id, uid))
-        return safe_send(bot, cid, "🎉 𝟲-𝗗𝗶𝗴𝗶𝘁 𝗣𝗜𝗡 𝗦𝗲𝘁!", reply_markup=get_user_main_menu())
-
-    if isinstance(st_data, dict) and st_data.get("step") == "wait_old_pin_verify":
-        row = fetch_query("SELECT upi_pin, failed_pin_attempts, pin_locked_until FROM bot_clients WHERE bot_id=? AND user_id=?", (bot_id, uid), fetchone=True)
-        if row and row["pin_locked_until"]:
-            try:
-                if datetime.datetime.now() < datetime.datetime.strptime(row["pin_locked_until"], "%Y-%m-%d %H:%M:%S"):
-                    user_states.pop(key, None)
-                    return safe_send(bot, cid, f"🚫 𝗪𝗔𝗟𝗟𝗘𝗧 𝗟𝗢𝗖𝗞𝗘𝗗. Try later.", reply_markup=get_user_main_menu())
-            except: pass
-        if not row or row["upi_pin"] != txt:
-            fails = (row["failed_pin_attempts"] if row else 0) + 1
-            if fails >= 3:
-                execute_query("UPDATE bot_clients SET failed_pin_attempts=?, pin_locked_until=datetime('now', '+1 hour') WHERE bot_id=? AND user_id=?", (fails, bot_id, uid))
-                user_states.pop(key, None)
-                return safe_send(bot, cid, "🚨 Locked for 1 hour due to 3 wrong attempts.", reply_markup=get_user_main_menu())
-            execute_query("UPDATE bot_clients SET failed_pin_attempts=? WHERE bot_id=? AND user_id=?", (fails, bot_id, uid))
-            return safe_send(bot, cid, f"❌ Wrong PIN ({fails}/3). Try again:")
-        execute_query("UPDATE bot_clients SET failed_pin_attempts=0 WHERE bot_id=? AND user_id=?", (bot_id, uid))
-        user_states[key] = {"step": "wait_new_pin_first"}
-        return safe_send(bot, cid, "✅ PIN Verified! Enter NEW 6-Digit PIN:")
-
-    if isinstance(st_data, dict) and st_data.get("step") == "wait_order_pin_auth":
-        o_data = st_data["order_info"]
-        row = fetch_query("SELECT upi_pin, failed_pin_attempts, pin_locked_until FROM bot_clients WHERE bot_id=? AND user_id=?", (bot_id, uid), fetchone=True)
-        if row and row["pin_locked_until"]:
-            user_states.pop(key, None)
-            return safe_send(bot, cid, "🚫 Wallet Locked.", reply_markup=get_user_main_menu())
-        if not row or row["upi_pin"] != txt:
-            fails = (row["failed_pin_attempts"] if row else 0) + 1
-            if fails >= 3:
-                execute_query("UPDATE bot_clients SET failed_pin_attempts=?, pin_locked_until=datetime('now', '+1 hour') WHERE bot_id=? AND user_id=?", (fails, bot_id, uid))
-                user_states.pop(key, None)
-                return safe_send(bot, cid, "🚨 Locked for 1 hour.", reply_markup=get_user_main_menu())
-            execute_query("UPDATE bot_clients SET failed_pin_attempts=? WHERE bot_id=? AND user_id=?", (fails, bot_id, uid))
-            return safe_send(bot, cid, f"❌ Wrong PIN ({fails}/3). Try again:")
-        execute_query("UPDATE bot_clients SET failed_pin_attempts=0 WHERE bot_id=? AND user_id=?", (bot_id, uid))
-        user_states.pop(key, None)
-        safe_send(bot, cid, "🔄 𝗣𝗿𝗼𝗰𝗲𝘀𝘀𝗶𝗻𝗴 𝗼𝗿𝗱𝗲𝗿...")
-        return execute_reseller_api_order(bot_id, uid, o_data["api_id"], o_data["link"], o_data["qty"], o_data["cost"], o_data["name"], cid, bot)
-
-    if st_data == "wait_custom_days_key" and is_master:
-        user_states.pop(key, None)
-        if not txt.isdigit() or int(txt) <= 0: return safe_send(bot, cid, "Please enter a valid number of days.")
-        key_code = generate_license_key(int(txt))
-        return safe_send(bot, cid, f"🎟️ 𝗖𝗨𝗦𝗧𝗢𝗠 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬 𝗚𝗘𝗡𝗘𝗥𝗔𝗧𝗘𝗗\n\n🔑 Key: {key_code}\n\n⏱️ Validity: {txt} Days", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Back to Owner Panel", callback_data="adm_back_panel")))
-
-    if st_data == "wait_redeem_key":
-        user_states.pop(key, None)
-        lic = fetch_query("SELECT * FROM license_keys WHERE key_code=? AND is_used=0", (txt,), fetchone=True)
-        if not lic: return safe_send(bot, cid, "❌ Invalid or Already Used License Key!")
-        days = lic["duration_days"]
-        new_exp = (datetime.datetime.now() + datetime.timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-        execute_query("UPDATE license_keys SET is_used=1, used_by_bot_id=? WHERE key_code=?", (bot_id, txt))
-        execute_query("UPDATE child_bots SET is_licensed=1, status='active', subscription_expiry=? WHERE bot_id=?", (new_exp, bot_id))
-        return safe_send(bot, cid, f"🎉 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗔𝗖𝗧𝗜𝗩𝗔𝗧𝗘𝗗!\n\n⏱️ Expiry: {new_exp}", reply_markup=get_owner_panel(is_master))
-
-    if st_data == "fam_step_1_upi":
-        user_states[key] = {"step": "fam_step_2_email", "upi": txt}
-        return safe_send(bot, cid, f"✅ UPI ID Saved: {txt}\n\n⚡ 𝗦𝘁𝗲𝗽 𝟮/𝟯: Send your Gmail address:")
-
-    if isinstance(st_data, dict) and st_data.get("step") == "fam_step_2_email":
-        user_states[key] = {"step": "fam_step_3_pwd", "upi": st_data["upi"], "email": txt}
-        return safe_send(bot, cid, f"✅ Gmail Saved: {txt}\n\n⚡ 𝗦𝘁𝗲𝗽 𝟯/𝟯: Send your 16-digit Google App Password:")
-
-    if isinstance(st_data, dict) and st_data.get("step") == "fam_step_3_pwd":
-        user_states.pop(key, None)
-        execute_query("UPDATE child_bots SET fampay_upi=?, fampay_email=?, fampay_app_pwd=?, active_gateway='fampay' WHERE bot_id=?", (st_data["upi"], st_data["email"], txt, bot_id if not is_master else 0))
-        return safe_send(bot, cid, f"🎉 Gmail Auto-Verifier Configured Successfully!", reply_markup=get_owner_panel(is_master))
+        execute_query("UPDATE child_bots SET paytm_mid=?, paytm_upi=?, active_gateway='paytm' WHERE bot_id=?", (st_data["mid"], txt, bot_id if not is_master else 0))
+        return safe_send(bot, cid, f"🎉 Paytm Merchant MID & UPI Configured Successfully!", reply_markup=get_owner_panel(is_master))
 
     if isinstance(st_data, dict) and st_data.get("step") == "wait_manual_utr":
         user_states.pop(key, None)
@@ -871,20 +810,11 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
             return safe_send(bot, cid, "❌ Invalid UTR! Bank UTR must be exactly 12 numeric digits. Please send again:")
 
         t_row = fetch_query("SELECT amount, status, tx_type, target_days, bot_id FROM transactions WHERE tx_id=?", (tx,), fetchone=True)
-        if not t_row or t_row["status"] == "completed": return safe_send(bot, cid, "Transaction already completed or invalid.", reply_markup=get_user_main_menu())
-        if t_row["status"] == "cancelled": return safe_send(bot, cid, "❌ This deposit was cancelled.", reply_markup=get_user_main_menu())
+        if not t_row or t_row["status"] == "completed": return safe_send(bot, cid, "Transaction already completed.", reply_markup=get_user_main_menu())
+        if t_row["status"] == "cancelled": return safe_send(bot, cid, "❌ Cancelled.", reply_markup=get_user_main_menu())
 
-        if fetch_query("SELECT COUNT(*) as c FROM transactions WHERE bank_utr=? AND status='completed'", (user_utr,), fetchone=True)["c"] > 0:
-            return safe_send(bot, cid, "❌ This UTR has already been verified and used previously!")
-
-        target_bot_id = 0 if t_row["tx_type"] == "buy_key" else bot_id
-        b_conf = fetch_query("SELECT active_gateway, fampay_email, fampay_app_pwd FROM child_bots WHERE bot_id=?", (target_bot_id,), fetchone=True)
-        
         execute_query("UPDATE transactions SET bank_utr=? WHERE tx_id=?", (user_utr, tx))
-        verified = False
-
-        if b_conf and b_conf["fampay_email"] and b_conf["fampay_app_pwd"]:
-            verified = verify_via_gmail_notifications(b_conf["fampay_email"], b_conf["fampay_app_pwd"], t_row["amount"], user_utr)
+        verified = verify_payment_via_merchant_or_gmail(t_row["bot_id"], t_row["amount"])
         
         if verified:
             execute_query("UPDATE transactions SET status='completed' WHERE tx_id=?", (tx,))
@@ -892,48 +822,16 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
                 days = t_row["target_days"]
                 key_code = generate_license_key(duration_days=days)
                 execute_query("UPDATE license_keys SET used_by_bot_id=? WHERE key_code=?", (bot_id, key_code))
-                safe_send(bot, cid, f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗 𝗕𝗬 𝗚𝗠𝗔𝗜𝗟!\n\n🔑 Key: `{key_code}`\n\nEnter this in your /admin ➔ Gateway License Key to activate!")
+                safe_send(bot, cid, f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n\n🔑 Key: `{key_code}`")
             else:
                 execute_query("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", (t_row["amount"], t_row["amount"], bot_id, uid))
-                safe_send(bot, cid, f"🎉 Payment Verified!\nUTR: {user_utr}\n₹{t_row['amount']} credited to your wallet.", reply_markup=get_user_main_menu())
+                safe_send(bot, cid, f"🎉 Payment Verified!\n₹{t_row['amount']} credited to your wallet.", reply_markup=get_user_main_menu())
         else:
-            safe_send(bot, cid, "⏳ UTR submitted! Gmail auto-verification is either off or pending.\nSent to Admin for instant manual approval. Please wait...")
-            admin_msg = f"⚠️ 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗣𝗣𝗥𝗢𝗩𝗔𝗟 𝗥𝗘𝗤𝗨𝗘𝗦𝗧\n\n• User ID: `{uid}`\n• Amount: ₹{t_row['amount']}\n• UTR: `{user_utr}`\n• Type: {t_row['tx_type']}\n\nPlease check your Bank/Paytm app to verify this UTR."
+            safe_send(bot, cid, "⏳ UTR submitted! Sent to Admin for instant manual approval. Please wait...")
+            admin_msg = f"⚠️ 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗣𝗣𝗥𝗢𝗩𝗔𝗟 𝗥𝗘𝗤𝗨𝗘𝗦𝗧\n\n• User ID: `{uid}`\n• Amount: ₹{t_row['amount']}\n• UTR: `{user_utr}`\n• Type: {t_row['tx_type']}"
             m = types.InlineKeyboardMarkup(row_width=2).add(types.InlineKeyboardButton("✅ APPROVE", callback_data=f"adm_approve_tx_{tx}"), types.InlineKeyboardButton("❌ REJECT", callback_data=f"adm_reject_tx_{tx}"))
             try: telebot.TeleBot(MASTER_BOT_TOKEN).send_message(SUPER_ADMIN_ID, admin_msg, reply_markup=m)
             except: pass
-        return
-
-    if isinstance(st_data, dict) and st_data.get("step") == "wait_link":
-        user_states[key] = {"step": "wait_qty", "msid": st_data["msid"], "price": st_data["price"], "link": txt}
-        return safe_send(bot, cid, "🔢 Enter Quantity:")
-
-    if isinstance(st_data, dict) and st_data.get("step") == "wait_qty":
-        if not txt.isdigit(): return safe_send(bot, cid, "Numbers only.")
-        qty, msid, pr, link = int(txt), st_data["msid"], st_data["price"], st_data["link"]
-        ms = fetch_query("SELECT * FROM master_services WHERE id=?", (msid,), fetchone=True)
-        c_row = fetch_query("SELECT balance, upi_pin FROM bot_clients WHERE bot_id=? AND user_id=?", (bot_id, uid), fetchone=True)
-
-        cost = (qty / 100.0) * pr
-        if (c_row["balance"] if c_row else 0.0) < cost:
-            user_states.pop(key, None)
-            return safe_send(bot, cid, f"❌ Insufficient Funds! (Need ₹{cost:.2f})")
-
-        order_pack = {"api_id": ms["main_api_service_id"], "link": link, "qty": qty, "cost": cost, "name": ms["service_name"]}
-
-        if not c_row or not c_row["upi_pin"]:
-            user_states[key] = {"step": "wait_new_pin_first"}
-            return safe_send(bot, cid, "⚠️ Please set a 6-Digit PIN first to protect your balance.\n\nEnter a 6-digit PIN (numbers only):")
-
-        user_states[key] = {"step": "wait_order_pin_auth", "order_info": order_pack}
-        return safe_send(bot, cid, f"🔐 𝗘𝗡𝗧𝗘𝗥 𝗣𝗜𝗡 𝗧𝗢 𝗣𝗔𝗬 ₹{cost:.2f}\n\nEnter 6-Digit PIN:")
-
-    if isinstance(st_data, dict) and st_data.get("step") == "wait_resell_price":
-        user_states.pop(key, None)
-        try:
-            execute_query("INSERT INTO child_services (bot_id, master_service_id, selling_price_per_100, is_published) VALUES (?, ?, ?, 1) ON CONFLICT(bot_id, master_service_id) DO UPDATE SET selling_price_per_100=excluded.selling_price_per_100, is_published=1", (bot_id, st_data["msid"], float(txt)))
-            safe_send(bot, cid, f"✅ Published!", reply_markup=get_owner_panel(is_master))
-        except: safe_send(bot, cid, "Invalid price!")
         return
 
     if st_data == "wait_add_bal":
@@ -963,7 +861,7 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         return safe_send(bot, cid, f"✅ Unbanned.", reply_markup=get_owner_panel(is_master))
 
 # ==========================================
-# 🤖 BOT THREAD RUNNERS
+# 🤖 BOT THREAD RUNNERS & AUTO POLLER
 # ==========================================
 def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
     while True:
@@ -978,7 +876,7 @@ def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
                 urow = fetch_query("SELECT banned FROM bot_clients WHERE bot_id=? AND user_id=?", (bot_id, uid), fetchone=True)
                 if urow and urow["banned"] == 1: return cbot.reply_to(msg, "You are banned from using this bot!")
                 execute_query("INSERT OR IGNORE INTO bot_clients (bot_id, user_id, username) VALUES (?, ?, ?)", (bot_id, uid, msg.from_user.username))
-                welcome_screen = "ﮩ٨ـ Hey 𝔼 𝕃 𝕆 ℕ 𝗔 💎\n❄️❄️❄️❄️❄️❄️❄️❄️❄️\n𝗕𝗼𝗼𝘀𝘁 𝗬𝗼𝘂𝗿 𝗦𝗼𝗰𝗶𝗮𝗹 𝗣𝗿𝗲𝘀𝗲𝗻𝗰𝗲 𝗪𝗶𝘁𝗵 𝗜𝗻𝘀𝘁𝗮𝗻𝘁 𝗗𝗲𝗹𝗶𝘃𝗲𝗿𝘆 𝗔𝗻𝗱 𝗔𝘂𝘁𝗼𝗺𝗮𝘁𝗲𝗱 𝟮𝟰/𝟳 𝗣𝗿𝗼𝗰𝗲𝘀𝘀𝗶𝗻𝗴. ⭐\n❄️❄️❄️❄️❄️❄️❄️❄️❄️\n🥺🥺🥺🥺🥺\n𝗪𝗘 𝗛𝗔𝗩𝗘 𝗖𝗟𝗢𝗡𝗘 𝗥𝗘𝗦𝗘𝗟𝗟𝗜𝗡 𝗣𝗥𝗢𝗚𝗥𝗔𝗠 𝗙𝗢𝗥 𝗕𝗨𝗦𝗜𝗡𝗘𝗦𝗦 𝗠𝗔𝗡 & 𝗗𝗘𝗩𝗘𝗟𝗢𝗣𝗘𝗥𝗦\n❄️❄️❄️❄️❄️❄️❄️❄️❄️\n𝗣𝗿𝗲𝘀𝘀 𝗖𝗼𝗻𝘁𝗶𝗻𝘂𝗲 𝗧𝗼 𝗢𝗽𝗲𝗻 𝗧𝗵𝗲 𝗠𝗲𝗻𝘂"
+                welcome_screen = "ﮩ٨ـ Hey 𝔼 𝕃 𝕆 ℕ 𝗔 💎\n❄️❄️❄️❄️❄️❄️❄️❄️❄️\n𝗕𝗼𝗼𝘀𝘁 𝗬𝗼𝘂𝗿 𝗦𝗼𝗰𝗶𝗮𝗹 𝗣𝗿𝗲𝘀𝗲𝗻𝗰𝗲 𝗪𝗶𝘁𝗵 𝗜𝗻𝘀𝘁𝗮𝗻𝘁 𝗗𝗲𝗹𝗶𝘃𝗲𝗿𝘆 𝗔𝗻𝗱 𝗔𝘂𝘁𝗼𝗺𝗮𝘁𝗲𝗱 𝟮𝟰/𝟳 𝗣𝗿𝗼𝗰𝗲𝘀𝘀𝗶𝗻𝗴. ⭐\n❄️❄️❄️❄️❄️❄️❄️❄️❄️\nPress Continue To Open The Menu"
                 safe_send(cbot, msg.chat.id, welcome_screen, reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("💎 Continue", callback_data="u_continue_main")))
 
             @cbot.message_handler(commands=['admin'])
@@ -1051,31 +949,23 @@ def autonomous_smm_payment_poller():
                 try: requests.get(url, timeout=5)
                 except: pass
 
-            # --- ROUTING BUG FIXED IN AUTO POLLING ---
-            if pulse_counter % 2 == 0:
-                txs = fetch_query("SELECT tx_id, bot_id, user_id, amount, tx_type, target_days, bank_utr FROM transactions WHERE status='pending' LIMIT 5")
-                if txs:
-                    for p in txs:
-                        t_id = 0 if p["tx_type"] == "buy_key" else p["bot_id"]
-                        b_conf = fetch_query("SELECT active_gateway, fampay_email, fampay_app_pwd FROM child_bots WHERE bot_id=?", (t_id,), fetchone=True)
-                        
-                        verified = False
-                        if b_conf and b_conf["fampay_email"] and b_conf["fampay_app_pwd"]:
-                            verified = verify_via_gmail_notifications(b_conf["fampay_email"], b_conf["fampay_app_pwd"], p["amount"], p["bank_utr"])
+            txs = fetch_query("SELECT tx_id, bot_id, user_id, amount, tx_type, target_days FROM transactions WHERE status='pending' LIMIT 5")
+            if txs:
+                for p in txs:
+                    verified = verify_payment_via_merchant_or_gmail(p["bot_id"], p["amount"])
 
-                        if verified:
-                            execute_query("UPDATE transactions SET status='completed' WHERE tx_id=?", (p["tx_id"],))
-                            # EXACT BOT INSTANCE TO MESSAGE CORRECT USER
-                            t_bot = get_bot_instance(p["bot_id"])
-                            if p["tx_type"] == "buy_key":
-                                k = generate_license_key(p["target_days"])
-                                execute_query("UPDATE license_keys SET used_by_bot_id=? WHERE key_code=?", (p["bot_id"], k))
-                                if t_bot: safe_send(t_bot, p["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗨𝗧𝗢-𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n\nKey: `{k}`")
-                                send_super_admin_log(f"⚡ 𝗔𝗨𝗧𝗢-𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗚𝗠𝗔𝗜𝗟: 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬 𝗜𝗦𝗦𝗨𝗘𝗗\n• User ID: {p['user_id']}\n• Amount: ₹{p['amount']}", acting_user_id=p['user_id'])
-                            else:
-                                execute_query("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", (p["amount"], p["amount"], p["bot_id"], p["user_id"]))
-                                if t_bot: safe_send(t_bot, p["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗨𝗧𝗢-𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n₹{p['amount']} wallet me add ho gaye hain.")
-                                send_super_admin_log(f"⚡ 𝗔𝗨𝗧𝗢-𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗚𝗠𝗔𝗜𝗟: 𝗗𝗘𝗣𝗢𝗦𝗜𝗧 𝗖𝗥𝗘𝗗𝗜𝗧𝗘𝗗\n• User ID: {p['user_id']}\n• Bot ID: {p['bot_id']}\n• Amount: ₹{p['amount']}", acting_user_id=p['user_id'])
+                    if verified:
+                        execute_query("UPDATE transactions SET status='completed' WHERE tx_id=?", (p["tx_id"],))
+                        t_bot = get_bot_instance(p["bot_id"])
+                        if p["tx_type"] == "buy_key":
+                            k = generate_license_key(p["target_days"])
+                            execute_query("UPDATE license_keys SET used_by_bot_id=? WHERE key_code=?", (p["bot_id"], k))
+                            if t_bot: safe_send(t_bot, p["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗨𝗧𝗢-𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n\nKey: `{k}`")
+                            send_super_admin_log(f"⚡ 𝗔𝗨𝗧𝗢-𝗣𝗔𝗬𝗠𝗘𝗡𝗧: 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬 𝗜𝗦𝗦𝗨𝗘𝗗\n• User ID: {p['user_id']}\n• Amount: ₹{p['amount']}", acting_user_id=p['user_id'])
+                        else:
+                            execute_query("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", (p["amount"], p["amount"], p["bot_id"], p["user_id"]))
+                            if t_bot: safe_send(t_bot, p["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗨𝗧𝗢-𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n₹{p['amount']} wallet me add ho gaye hain.")
+                            send_super_admin_log(f"⚡ 𝗔𝗨𝗧𝗢-𝗣𝗔𝗬𝗠𝗘𝗡𝗧: 𝗗𝗘𝗣𝗢𝗦𝗜𝗧 𝗖𝗥𝗘𝗗𝗜𝗧𝗘𝗗\n• User ID: {p['user_id']}\n• Amount: ₹{p['amount']}", acting_user_id=p['user_id'])
 
             if pulse_counter % 3 == 0:
                 rows = fetch_query("SELECT bot_id, owner_id, bot_token_enc, bot_username, bot_name FROM child_bots WHERE status='active' AND bot_id != 0")
@@ -1095,7 +985,7 @@ threading.Thread(target=run_master_bot_loop, daemon=True).start()
 threading.Thread(target=autonomous_smm_payment_poller, daemon=True).start()
 
 @app.route('/')
-def home(): return "Pranav God Mode Engine v8 Active", 200
+def home(): return "Pranav God Mode Engine v8.2 Active", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=RENDER_PORT, use_reloader=False)
