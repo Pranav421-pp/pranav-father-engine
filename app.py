@@ -6,8 +6,6 @@ import random
 import string
 import secrets
 import re
-import imaplib
-import email
 import sqlite3
 import threading
 import urllib.parse
@@ -21,13 +19,9 @@ from cryptography.fernet import Fernet
 # ⚙️ CONFIGURATION & CONSTANTS
 # ==========================================
 RENDER_PORT = int(os.environ.get("PORT", 8081))
-RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "").strip()
 MASTER_BOT_TOKEN = os.environ.get("MASTER_BOT_TOKEN", "").strip()
-SUPER_ADMIN_ID = 8585055903 # Pranav Patel (प्रणव जी - इकलौता गॉड मास्टर)
-MAIN_PANEL_URL = os.environ.get("MAIN_PANEL_URL", "https://pranavsmm.shop/api/v2")
-MAIN_PANEL_API_KEY = os.environ.get("MAIN_PANEL_API_KEY", "").strip()
+SUPER_ADMIN_ID = 8585055903 # Pranav Patel (प्रणव जी)
 
-# Secure Web Admin Credentials (Pranav Ji Only)
 WEB_ADMIN_USER = "pranav"
 WEB_ADMIN_PASS = "pranav7@admin"
 
@@ -35,17 +29,15 @@ SECRET_KEY = os.environ.get("SECRET_KEY", Fernet.generate_key().decode())
 if isinstance(SECRET_KEY, str): SECRET_KEY = SECRET_KEY.encode()
 cipher_suite = Fernet(SECRET_KEY)
 
-DB_PATH = "pranav_master_engine_combined.db"
+DB_PATH = "pranav_master_engine_pro.db"
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)
 
-bot_threads = {}
 user_states = {}
 keypad_amounts = {}
-master_is_running = False
 
 # ==========================================
-# 🗄️ UNIFIED BULLETPROOF DATABASE (WAL MODE)
+# 🗄️ ADVANCED BULLETPROOF DATABASE
 # ==========================================
 def get_db():
     conn = sqlite3.connect(DB_PATH, timeout=60, check_same_thread=False)
@@ -77,22 +69,24 @@ def fetch_query(query, params=(), fetchone=False):
 
 def init_db():
     queries = [
-        """CREATE TABLE IF NOT EXISTS child_bots (bot_id INTEGER PRIMARY KEY, owner_id INTEGER, bot_token_enc TEXT UNIQUE, bot_username TEXT, bot_name TEXT, pro_mode INTEGER DEFAULT 1, log_channel TEXT DEFAULT '', force_channel TEXT DEFAULT '', support_wa TEXT DEFAULT '', support_tg TEXT DEFAULT '', active_gateway TEXT DEFAULT 'fampay', paytm_mid TEXT DEFAULT 'WWRYwl67445982860121', paytm_upi TEXT DEFAULT 'paytm.s2xzkgu@pty', bharatpe_mid TEXT DEFAULT '', bharatpe_upi TEXT DEFAULT '', bharatpe_token TEXT DEFAULT '', fampay_email TEXT DEFAULT '', fampay_app_pwd TEXT DEFAULT '', subscription_expiry TIMESTAMP, is_licensed INTEGER DEFAULT 0, status TEXT DEFAULT 'active', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""",
-        """CREATE TABLE IF NOT EXISTS license_keys (key_code TEXT PRIMARY KEY, duration_days INTEGER DEFAULT 30, used_by_bot_id INTEGER DEFAULT NULL, used_by_user_id INTEGER DEFAULT NULL, is_used INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""",
-        """CREATE TABLE IF NOT EXISTS key_pricing (duration_days INTEGER PRIMARY KEY, price REAL, label TEXT)""",
-        """CREATE TABLE IF NOT EXISTS bot_clients (id INTEGER PRIMARY KEY AUTOINCREMENT, bot_id INTEGER, user_id INTEGER, username TEXT, balance REAL DEFAULT 0.0, total_deposit REAL DEFAULT 0.0, total_spent REAL DEFAULT 0.0, banned INTEGER DEFAULT 0, upi_pin TEXT DEFAULT '', failed_pin_attempts INTEGER DEFAULT 0, pin_locked_until TIMESTAMP DEFAULT NULL, UNIQUE(bot_id, user_id))""",
-        """CREATE TABLE IF NOT EXISTS master_services (id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT, sub_category TEXT, service_name TEXT, main_api_service_id TEXT UNIQUE, base_rate_per_100 REAL DEFAULT 1.0, min_qty INTEGER DEFAULT 100, max_qty INTEGER DEFAULT 1000000, description TEXT DEFAULT 'Live Fast Speed Non Drop')""",
-        """CREATE TABLE IF NOT EXISTS child_services (id INTEGER PRIMARY KEY AUTOINCREMENT, bot_id INTEGER, master_service_id INTEGER, selling_price_per_100 REAL DEFAULT 3.0, custom_description TEXT DEFAULT '', is_published INTEGER DEFAULT 1, UNIQUE(bot_id, master_service_id))""",
-        """CREATE TABLE IF NOT EXISTS bot_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, bot_id INTEGER, user_id INTEGER, service_name TEXT, link TEXT, quantity INTEGER, charge REAL, api_order_id TEXT, status TEXT DEFAULT 'Pending', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""",
-        """CREATE TABLE IF NOT EXISTS transactions (tx_id TEXT PRIMARY KEY, bot_id INTEGER, user_id INTEGER, amount REAL, tx_type TEXT DEFAULT 'deposit', target_days INTEGER DEFAULT 0, bank_utr TEXT DEFAULT '', status TEXT DEFAULT 'pending', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"""
+        """CREATE TABLE IF NOT EXISTS child_bots (bot_id INTEGER PRIMARY KEY, owner_id INTEGER, bot_token_enc TEXT UNIQUE, bot_username TEXT, bot_name TEXT, pro_mode INTEGER DEFAULT 1, active_gateway TEXT DEFAULT 'paytm', paytm_mid TEXT DEFAULT 'WWRYwl67445982860121', paytm_upi TEXT DEFAULT 'paytm.s2xzkgu@pty', subscription_expiry TIMESTAMP, is_licensed INTEGER DEFAULT 0, status TEXT DEFAULT 'active', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""",
+        """CREATE TABLE IF NOT EXISTS license_keys (key_code TEXT PRIMARY KEY, duration_days INTEGER DEFAULT 30, price REAL DEFAULT 0.0, label TEXT DEFAULT '30 Days', used_by_bot_id INTEGER DEFAULT NULL, used_by_user_id INTEGER DEFAULT NULL, is_used INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""",
+        """CREATE TABLE IF NOT EXISTS bot_clients (id INTEGER PRIMARY KEY AUTOINCREMENT, bot_id INTEGER, user_id INTEGER, username TEXT, balance REAL DEFAULT 0.0, total_deposit REAL DEFAULT 0.0, total_spent REAL DEFAULT 0.0, banned INTEGER DEFAULT 0, UNIQUE(bot_id, user_id))""",
+        """CREATE TABLE IF NOT EXISTS web_users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, email TEXT UNIQUE, password TEXT, balance REAL DEFAULT 0.0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""",
+        """CREATE TABLE IF NOT EXISTS transactions (tx_id TEXT PRIMARY KEY, bot_id INTEGER, user_id INTEGER, amount REAL, tx_type TEXT DEFAULT 'deposit', status TEXT DEFAULT 'pending', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"""
     ]
     for q in queries: execute_query(q)
 
-    if fetch_query("SELECT COUNT(*) as cnt FROM key_pricing", fetchone=True)["cnt"] == 0:
-        prices = [(7, 49.0, "7 Days (Trial)"), (30, 149.0, "30 Days (1 Month)"), (90, 399.0, "90 Days (3 Months)"), (365, 999.0, "365 Days (1 Year)"), (36500, 1999.0, "👑 Lifetime Access")]
-        conn = get_db()
-        conn.executemany("INSERT INTO key_pricing (duration_days, price, label) VALUES (?, ?, ?)", prices)
-        conn.commit(); conn.close()
+    # Default pricing keys if empty
+    if fetch_query("SELECT COUNT(*) as cnt FROM license_keys", fetchone=True)["cnt"] == 0:
+        default_keys = [
+            ("PRANAV-7DAYS-PRO99", 7, 49.0, "7 Days Trial"),
+            ("PRANAV-1MONTH-PRO149", 30, 149.0, "1 Month Pro"),
+            ("PRANAV-3MONTH-PRO399", 90, 399.0, "3 Months Elite"),
+            ("PRANAV-LIFETIME-GOD999", 36500, 999.0, "👑 Lifetime God Access")
+        ]
+        for k, days, pr, lbl in default_keys:
+            execute_query("INSERT OR IGNORE INTO license_keys (key_code, duration_days, price, label) VALUES (?, ?, ?, ?)", (k, days, pr, lbl))
 
     exp_date = (datetime.datetime.now() + datetime.timedelta(days=36500)).strftime("%Y-%m-%d %H:%M:%S")
     master_uname = "PranavFatherDevBot"
@@ -103,135 +97,364 @@ def init_db():
         except: pass
     
     execute_query("""
-    INSERT INTO child_bots (bot_id, owner_id, bot_username, paytm_mid, paytm_upi, active_gateway, is_licensed, subscription_expiry)
-    VALUES (0, ?, ?, 'WWRYwl67445982860121', 'paytm.s2xzkgu@pty', 'paytm', 1, ?)
+    INSERT INTO child_bots (bot_id, owner_id, bot_username, is_licensed, subscription_expiry)
+    VALUES (0, ?, ?, 1, ?)
     ON CONFLICT(bot_id) DO UPDATE SET owner_id=excluded.owner_id, bot_username=excluded.bot_username, is_licensed=1, subscription_expiry=?
     """, (SUPER_ADMIN_ID, master_uname, exp_date, exp_date))
 
 init_db()
 
 # ==========================================
-# 🌐 WEB FRONTEND & SECURE ADMIN PANEL (pranavsmm.online)
+# 🌟 3D FUTURISTIC GLASSMORPHISM FRONTEND & UI
 # ==========================================
 HOME_HTML = """
 <!DOCTYPE html>
-<html lang="en">
+<html lang="hi" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PranavSMM Gateway - High-Speed UPI Engine</title>
+    <title>PranavSMM.online - Next-Gen Gateway & Engine</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #030712; color: #f9fafb; overflow-x: hidden; }
+        .glass-card { background: rgba(17, 24, 39, 0.7); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); }
+        .glow-effect { text-shadow: 0 0 40px rgba(168, 85, 247, 0.5); }
+        .btn-3d { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 10px 25px -5px rgba(147, 51, 234, 0.5); }
+        .btn-3d:hover { transform: translateY(-3px); box-shadow: 0 20px 35px -5px rgba(147, 51, 234, 0.7); }
+    </style>
 </head>
-<body class="bg-slate-950 text-white font-sans antialiased">
-    <div class="min-h-screen flex flex-col justify-between p-6 max-w-4xl mx-auto">
-        <header class="flex justify-between items-center py-4 border-b border-slate-800">
-            <h1 class="text-2xl font-black bg-gradient-to-r from-purple-400 to-indigo-500 bg-clip-text text-transparent">⚡ PranavSMM Gateway</h1>
-            <a href="/admin" class="bg-indigo-600 px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-500 transition">Secure Admin Login</a>
-        </header>
-        <main class="py-12 text-center">
-            <span class="bg-purple-900/50 text-purple-300 px-4 py-1.5 rounded-full text-xs font-semibold border border-purple-700/50">0% GATEWAY FEES • DIRECT P2P UPI AUTOMATION</span>
-            <h2 class="text-4xl md:text-6xl font-extrabold mt-6 leading-tight">High-Speed UPI Gateway.<br><span class="bg-gradient-to-r from-purple-400 via-pink-400 to-indigo-400 bg-clip-text text-transparent">Liquid Precision.</span></h2>
-            <p class="text-slate-400 mt-4 max-w-xl mx-auto">Autonomous UPI settlement engine for Pranav SMM reseller bots, web apps, and digital merchants.</p>
-            <div class="mt-8 flex justify-center gap-4">
-                <a href="/admin" class="bg-gradient-to-r from-purple-600 to-indigo-600 px-8 py-3 rounded-xl font-bold hover:opacity-90 shadow-lg shadow-indigo-600/30">Open Admin Panel →</a>
+<body class="min-h-screen flex flex-col justify-between selection:bg-purple-500 selection:text-white">
+    <!-- Navbar -->
+    <header class="sticky top-0 z-50 glass-card border-b border-white/10 px-6 py-4 flex justify-between items-center">
+        <div class="flex items-center gap-3">
+            <span class="text-2xl font-black bg-gradient-to-r from-purple-400 via-pink-500 to-indigo-400 bg-clip-text text-transparent glow-effect">⚡ PranavSMM</span>
+            <span class="bg-purple-900/60 text-purple-300 text-xs px-3 py-1 rounded-full border border-purple-500/30 font-bold hidden sm:inline-block">2050 ENGINE v3.0</span>
+        </div>
+        <div class="flex items-center gap-3">
+            <a href="/login" class="text-sm font-semibold px-4 py-2 rounded-xl hover:bg-white/5 transition">Login</a>
+            <a href="/register" class="bg-gradient-to-r from-purple-600 to-indigo-600 text-sm font-bold px-5 py-2.5 rounded-xl btn-3D">Get Started</a>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <main class="flex-1 max-w-6xl mx-auto px-6 py-16 text-center flex flex-col justify-center">
+        <div class="inline-flex items-center gap-2 bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-500/20 px-4 py-2 rounded-full text-xs font-bold text-purple-300 mx-auto mb-6">
+            ✨ AUTOMATED P2P UPI & RESELLER BOT ECOSYSTEM
+        </div>
+        <h1 class="text-4xl md:text-7xl font-black tracking-tight leading-tight">
+            Autonomous Next-Gen <br>
+            <span class="bg-gradient-to-r from-purple-400 via-pink-400 to-indigo-400 bg-clip-text text-transparent glow-effect">Digital SMM & Gateway</span>
+        </h1>
+        <p class="text-slate-400 mt-6 max-w-2xl mx-auto text-base md:text-lg">
+            प्रणव जी का पावरफुल इंजन। सुरक्षित ऑटो-पेमेंट्स, चाइल्ड बॉट्स क्रिएशन, और इंस्टेंट लाइसेंस की जनरेशन सीधे आपके कंट्रोल में।
+        </p>
+
+        <!-- Pricing Cards Showcase -->
+        <div class="mt-16 grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
+            <div class="glass-card p-6 rounded-3xl relative overflow-hidden group hover:border-purple-500/50 transition">
+                <div class="absolute top-0 right-0 bg-purple-500/20 text-purple-300 text-xs font-bold px-3 py-1 rounded-bl-2xl">7 DAYS</div>
+                <h3 class="text-xl font-black text-white">Trial Pro</h3>
+                <div class="text-3xl font-black text-purple-400 mt-4">₹49 <span class="text-xs text-slate-500 font-normal">/7 days</span></div>
+                <p class="text-xs text-slate-400 mt-2">Perfect for trying out the master engine features.</p>
+                <a href="/register" class="mt-6 block text-center bg-white/10 hover:bg-white/20 py-3 rounded-xl font-bold text-sm transition">Activate Now →</a>
             </div>
-        </main>
-        <footer class="text-center text-slate-500 text-xs py-4 border-t border-slate-900">
-            © 2026 pranavsmm.online • Powered by Pranav Master Engine
-        </footer>
-    </div>
+            <div class="glass-card p-6 rounded-3xl relative overflow-hidden border-purple-500/40 group shadow-2xl shadow-purple-500/10">
+                <div class="absolute top-0 right-0 bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-xs font-bold px-3 py-1 rounded-bl-2xl">POPULAR</div>
+                <h3 class="text-xl font-black text-white">1 Month Elite</h3>
+                <div class="text-3xl font-black text-purple-400 mt-4">₹149 <span class="text-xs text-slate-500 font-normal">/month</span></div>
+                <p class="text-xs text-slate-400 mt-2">Full reseller child bot automation & live gateway access.</p>
+                <a href="/register" class="mt-6 block text-center bg-gradient-to-r from-purple-600 to-indigo-600 py-3 rounded-xl font-bold text-sm btn-3D">Activate Now →</a>
+            </div>
+            <div class="glass-card p-6 rounded-3xl relative overflow-hidden group hover:border-purple-500/50 transition">
+                <div class="absolute top-0 right-0 bg-pink-500/20 text-pink-300 text-xs font-bold px-3 py-1 rounded-bl-2xl">LIFETIME</div>
+                <h3 class="text-xl font-black text-white">👑 God Master</h3>
+                <div class="text-3xl font-black text-purple-400 mt-4">₹999 <span class="text-xs text-slate-500 font-normal">/lifetime</span></div>
+                <p class="text-xs text-slate-400 mt-2">Unlimited power, zero limits, absolute master control.</p>
+                <a href="/register" class="mt-6 block text-center bg-white/10 hover:bg-white/20 py-3 rounded-xl font-bold text-sm transition">Activate Now →</a>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="glass-card border-t border-white/10 text-center text-slate-500 text-xs py-6">
+        © 2026 pranavsmm.online • Built with Pranav Master Engine
+    </footer>
 </body>
 </html>
 """
 
 LOGIN_HTML = """
 <!DOCTYPE html>
-<html lang="en">
+<html lang="hi" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Login - PranavSMM</title>
+    <title>Login - PranavSMM</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;850&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #030712; color: #f9fafb; }
+        .glass-card { background: rgba(17, 24, 39, 0.8); backdrop-filter: blur(25px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    </style>
 </head>
-<body class="bg-slate-950 text-white flex items-center justify-center min-h-screen">
-    <div class="bg-slate-900 p-8 rounded-2xl border border-slate-800 w-full max-w-md shadow-2xl">
-        <h2 class="text-2xl font-black text-center mb-6 bg-gradient-to-r from-purple-400 to-indigo-500 bg-clip-text text-transparent">🔒 Pranav Ji Admin Login</h2>
+<body class="min-h-screen flex items-center justify-center p-6">
+    <div class="glass-card p-8 rounded-3xl w-full max-w-md shadow-2xl">
+        <h2 class="text-3xl font-black text-center mb-2 bg-gradient-to-r from-purple-400 to-indigo-500 bg-clip-text text-transparent">Welcome Back</h2>
+        <p class="text-center text-slate-400 text-xs mb-6">Sign in to your PranavSMM account</p>
         {% if error %}
-        <div class="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-lg text-sm mb-4 text-center">{{ error }}</div>
+        <div class="bg-red-500/20 border border-red-500/50 text-red-300 p-3 rounded-xl text-xs mb-4 text-center font-bold">{{ error }}</div>
         {% endif %}
         <form method="POST" class="space-y-4">
             <div>
-                <label class="block text-xs font-semibold text-slate-400 mb-1">USERNAME</label>
-                <input type="text" name="username" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500">
+                <label class="block text-xs font-bold text-slate-400 mb-1">EMAIL ADDRESS</label>
+                <input type="email5" name="email" required class="w-full bg-slate-950/80 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 text-sm">
             </div>
             <div>
-                <label class="block text-xs font-semibold text-slate-400 mb-1">PASSWORD</label>
-                <input type="password" name="password" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500">
+                <label class="block text-xs font-bold text-slate-400 mb-1">PASSWORD</label>
+                <input type="password" name="password" required class="w-full bg-slate-950/80 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 text-sm">
             </div>
-            <button type="submit" class="w-full bg-gradient-to-r from-purple-600 to-indigo-600 py-3 rounded-xl font-bold hover:opacity-90 transition mt-2">Login Securely →</button>
+            <button type="submit" class="w-full bg-gradient-to-r from-purple-600 to-indigo-600 py-3.5 rounded-xl font-bold text-sm hover:opacity-90 transition shadow-lg shadow-purple-600/30">Secure Login →</button>
         </form>
-        <div class="text-center mt-4">
-            <a href="/" class="text-xs text-slate-500 hover:text-slate-400">← Back to Home</a>
+        <div class="text-center mt-6 text-xs text-slate-400">
+            Don't have an account? <a href="/register" class="text-purple-400 font-bold hover:underline">Register</a> | <a href="/" class="text-slate-500 hover:text-white">Home</a>
         </div>
     </div>
+</body>
+</html>
+"""
+
+REGISTER_HTML = """
+<!DOCTYPE html>
+<html lang="hi" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - PranavSMM</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;850&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #030712; color: #f9fafb; }
+        .glass-card { background: rgba(17, 24, 39, 0.8); backdrop-filter: blur(25px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-6">
+    <div class="glass-card p-8 rounded-3xl w-full max-w-md shadow-2xl">
+        <h2 class="text-3xl font-black text-center mb-2 bg-gradient-to-r from-purple-400 to-indigo-500 bg-clip-text text-transparent">Create Account</h2>
+        <p class="text-center text-slate-400 text-xs mb-6">Join PranavSMM Gateway & SMM Platform</p>
+        {% if error %}
+        <div class="bg-red-500/20 border border-red-500/50 text-red-300 p-3 rounded-xl text-xs mb-4 text-center font-bold">{{ error }}</div>
+        {% endif %}
+        <form method="POST" class="space-y-4">
+            <div>
+                <label class="block text-xs font-bold text-slate-400 mb-1">YOUR NAME</label>
+                <input type="text" name="name" required class="w-full bg-slate-950/80 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 text-sm">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-400 mb-1">EMAIL ADDRESS</label>
+                <input type="email" name="email" required class="w-full bg-slate-950/80 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 text-sm">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-400 mb-1">PASSWORD</label>
+                <input type="password" name="password" required class="w-full bg-slate-950/80 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 text-sm">
+            </div>
+            <button type="submit" class="w-full bg-gradient-to-r from-purple-600 to-indigo-600 py-3.5 rounded-xl font-bold text-sm hover:opacity-90 transition shadow-lg shadow-purple-600/30">Register Free →</button>
+        </form>
+        <div class="text-center mt-6 text-xs text-slate-400">
+            Already have an account? <a href="/login" class="text-purple-400 font-bold hover:underline">Login</a> | <a href="/" class="text-slate-500 hover:text-white">Home</a>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+USER_DASHBOARD_HTML = """
+<!DOCTYPE html>
+<html lang="hi" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Dashboard - PranavSMM</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;850&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #030712; color: #f9fafb; }
+        .glass-card { background: rgba(17, 24, 39, 0.8); backdrop-filter: blur(25px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+    <header class="glass-card border-b border-white/10 px-6 py-4 flex justify-between items-center">
+        <div class="flex items-center gap-3">
+            <span class="text-xl font-black bg-gradient-to-r from-purple-400 to-indigo-400 bg-clip-text text-transparent">⚡ PranavSMM</span>
+            <span class="bg-purple-900/50 text-purple-300 text-xs px-3 py-1 rounded-full border border-purple-500/30 font-bold">User Hub</span>
+        </div>
+        <div class="flex items-center gap-4 text-sm">
+            <span class="text-slate-400">Hello, <b class="text-white">{{ user.name }}</b></span>
+            <a href="/logout" class="bg-red-500/20 text-red-300 px-3 py-1.5 rounded-xl font-bold border border-red-500/30 hover:bg-red-500/30 transition text-xs">Logout</a>
+        </div>
+    </header>
+    <main class="flex-1 max-w-5xl mx-auto p-6 w-full">
+        <h1 class="text-3xl font-black mb-6">Your Dashboard</h1>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="glass-card p-6 rounded-3xl">
+                <div class="text-xs font-bold text-slate-400 uppercase">Account Balance</div>
+                <div class="text-3xl font-black text-purple-400 mt-2">₹{{ "%.2f"|format(user.balance) }}</div>
+            </div>
+            <div class="glass-card p-6 rounded-3xl">
+                <div class="text-xs font-bold text-slate-400 uppercase">Account Email</div>
+                <div class="text-sm font-bold text-white mt-3 truncate">{{ user.email }}</div>
+            </div>
+            <div class="glass-card p-6 rounded-3xl">
+                <div class="text-xs font-bold text-slate-400 uppercase">Gateway Status</div>
+                <div class="text-lg font-black text-green-400 mt-2">🟢 Active & Connected</div>
+            </div>
+        </div>
+    </main>
 </body>
 </html>
 """
 
 ADMIN_DASHBOARD_HTML = """
 <!DOCTYPE html>
-<html lang="en">
+<html lang="hi" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pranav God Master - Admin Dashboard</title>
+    <title>👑 Pranav Ji Master Admin Panel</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;850&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #030712; color: #f9fafb; }
+        .glass-card { background: rgba(17, 24, 39, 0.85); backdrop-filter: blur(25px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    </style>
 </head>
-<body class="bg-slate-950 text-white p-6">
-    <div class="max-w-6xl mx-auto">
-        <div class="flex justify-between items-center bg-slate-900 p-5 rounded-2xl border border-slate-800">
-            <div>
-                <h1 class="text-2xl font-black">👑 Pranav Ji Dashboard</h1>
-                <p class="text-xs text-slate-400 mt-0.5">Logged in securely as God Master</p>
+<body class="min-h-screen flex flex-col">
+    <!-- Top Admin Header -->
+    <header class="glass-card border-b border-white/10 px-8 py-4 flex justify-between items-center sticky top-0 z-50">
+        <div class="flex items-center gap-3">
+            <span class="text-2xl font-black bg-gradient-to-r from-amber-400 to-purple-500 bg-clip-text text-transparent">👑 Pranav Ji Admin Panel</span>
+            <span class="bg-amber-500/20 text-amber-300 text-xs px-3 py-1 rounded-full border border-amber-500/30 font-bold">God Master Access</span>
+        </div>
+        <div class="flex items-center gap-4">
+            <a href="/" target="_blank" class="text-sm text-slate-400 hover:text-white">View Site ↗</a>
+            <a href="/admin/logout" class="bg-red-500/20 text-red-300 px-4 py-2 rounded-xl text-xs font-bold border border-red-500/30 hover:bg-red-500/30 transition">Logout</a>
+        </div>
+    </header>
+
+    <main class="flex-1 max-w-6xl mx-auto p-6 md:p-8 w-full space-y-8">
+        <!-- Stats Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
+            <div class="glass-card p-6 rounded-3xl border-l-4 border-l-purple-500">
+                <div class="text-slate-400 text-xs font-bold uppercase">Active Child Bots</div>
+                <div class="text-4xl font-black mt-2 text-white">{{ total_bots }}</div>
             </div>
-            <div class="flex gap-3">
-                <a href="/" class="bg-slate-800 px-4 py-2 rounded-xl text-sm font-semibold hover:bg-slate-700">Home</a>
-                <a href="/admin/logout" class="bg-red-600/20 border border-red-500 text-red-300 px-4 py-2 rounded-xl text-sm font-semibold hover:bg-red-600/30">Logout</a>
+            <div class="glass-card p-6 rounded-3xl border-l-4 border-l-green-500">
+                <div class="text-slate-400 text-xs font-bold uppercase">Total Web Users</div>
+                <div class="text-4xl font-black mt-2 text-white">{{ total_web_users }}</div>
+            </div>
+            <div class="glass-card p-6 rounded-3xl border-l-4 border-l-amber-500">
+                <div class="text-slate-400 text-xs font-bold uppercase">Engine Status</div>
+                <div class="text-3xl font-black mt-2 text-green-400">ONLINE ⚡</div>
             </div>
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
-            <div class="bg-slate-900 p-6 rounded-2xl border border-slate-800">
-                <h3 class="text-slate-400 text-xs font-bold uppercase tracking-wider">Active Child Bots</h3>
-                <p class="text-4xl font-black mt-2 text-indigo-400">{{ total_bots }}</p>
+
+        <!-- License Key Generator Box -->
+        <div class="glass-card p-8 rounded-3xl shadow-2xl">
+            <h3 class="text-xl font-black mb-4 flex items-center gap-2">🎟️ License Key Generator (1 Month / 3 Months / Lifetime)</h3>
+            <p class="text-xs text-slate-400 mb-6">चाइल्ड बॉट्स और प्रीमियम मर्चेंट्स के लिए सिक्योर लाइसेंस की यहाँ से जनरेट करें।</p>
+            
+            <form method="POST" action="/admin/generate-key" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-400 mb-1">SELECT PLAN / DURATION</label>
+                    <select name="duration" class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-purple-500">
+                        <option value="7">7 Days Trial (₹49)</option>
+                        <option value="30" selected>1 Month Pro (₹149)</option>
+                        <option value="90">3 Months Elite (₹399)</option>
+                        <option value="36500">👑 Lifetime God (₹999)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-400 mb-1">PRICE (INR)</label>
+                    <input type="number" name="price" value="149" class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-purple-500">
+                </div>
+                <div class="flex items-end">
+                    <button type="submit" class="w-full bg-gradient-to-r from-purple-600 to-indigo-600 py-3 rounded-xl font-bold text-sm hover:opacity-90 transition shadow-lg shadow-purple-600/30">Generate Key ⚡</button>
+                </div>
+            </form>
+
+            {% if generated_key %}
+            <div class="mt-6 bg-slate-950 p-4 rounded-2xl border border-purple-500/40 flex justify-between items-center">
+                <div>
+                    <div class="text-xs text-purple-400 font-bold">SUCCESSFULLY GENERATED KEY:</div>
+                    <div class="text-sm font-mono text-white mt-1 select-all font-black">{{ generated_key }}</div>
+                </div>
             </div>
-            <div class="bg-slate-900 p-6 rounded-2xl border border-slate-800">
-                <h3 class="text-slate-400 text-xs font-bold uppercase tracking-wider">Total Transactions</h3>
-                <p class="text-4xl font-black mt-2 text-green-400">{{ total_tx }}</p>
+            {% endif %}
+        </div>
+
+        <!-- Master API Credentials -->
+        <div class="glass-card p-8 rounded-3xl">
+            <h3 class="text-xl font-black mb-4">🔑 Master Gateway API Endpoints</h3>
+            <div class="bg-slate-950 p-4 rounded-2xl border border-white/10 font-mono text-xs text-purple-300 break-all mb-4">
+                MASTER API KEY: <b>fam_live_ecaccced0de14140a457f95aac05b687</b>
             </div>
-            <div class="bg-slate-900 p-6 rounded-2xl border border-slate-800">
-                <h3 class="text-slate-400 text-xs font-bold uppercase tracking-wider">Engine Status</h3>
-                <p class="text-4xl font-black mt-2 text-purple-400">ONLINE ⚡</p>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-xs">
+                <div class="bg-slate-950 p-3 rounded-xl border border-white/10 text-indigo-300">POST /api/v1/fampay/create</div>
+                <div class="bg-slate-950 p-3 rounded-xl border border-white/10 text-indigo-300">POST /api/v1/paytm/create</div>
+                <div class="bg-slate-950 p-3 rounded-xl border border-white/10 text-indigo-300">POST /api/v1/bharatpe/create</div>
             </div>
         </div>
-        <div class="mt-8 bg-slate-900 p-6 rounded-2xl border border-slate-800">
-            <h2 class="text-lg font-bold mb-4">🔑 Gateway API Endpoints & Master Key</h2>
-            <div class="bg-slate-950 p-4 rounded-xl font-mono text-xs text-indigo-300 border border-slate-800">
-                Master API Key: <b>fam_live_ecaccced0de14140a457f95aac05b687</b>
-            </div>
-            <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono">
-                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">POST /api/v1/fampay/create</div>
-                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">POST /api/v1/paytm/create</div>
-                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">POST /api/v1/bharatpe/create</div>
-            </div>
-        </div>
-    </div>
+    </main>
 </body>
 </html>
 """
 
+# ==========================================
+# 🌐 WEB ROUTES (FRONTEND & ADMIN SEPARATION)
+# ==========================================
 @app.route('/')
-def home(): return render_template_string(HOME_HTML)
+def home():
+    return render_template_string(HOME_HTML)
 
+@app.route('/login', methods=['GET', 'POST'])
+def user_login():
+    if request.method == 'POST':
+        email = request.form.get("email")
+        pwd = request.form.get("password")
+        user = fetch_query("SELECT * FROM web_users WHERE email=? AND password=?", (email, pwd), fetchone=True)
+        if user:
+            session['user_id'] = user["id"]
+            return redirect(url_for('user_dashboard'))
+        return render_template_string(LOGIN_HTML, error="❌ Invalid Email or Password!")
+    return render_template_string(LOGIN_HTML)
+
+@app.route('/register', methods=['GET', 'POST'])
+def user_register():
+    if request.method == 'POST':
+        name = request.form.get("name")
+        email = request.form.get("email")
+        pwd = request.form.get("password")
+        try:
+            execute_query("INSERT INTO web_users (name, email, password, balance) VALUES (?, ?, ?, 0.0)", (name, email, pwd))
+            user = fetch_query("SELECT * FROM web_users WHERE email=?", (email,), fetchone=True)
+            session['user_id'] = user["id"]
+            return redirect(url_for('user_dashboard'))
+        except:
+            return render_template_string(REGISTER_HTML, error="❌ Email already registered!")
+    return render_template_string(REGISTER_HTML)
+
+@app.route('/dashboard')
+def user_dashboard():
+    if not session.get('user_id'): return redirect(url_for('user_login'))
+    user = fetch_query("SELECT * FROM web_users WHERE id=?", (session['user_id'],), fetchone=True)
+    return render_template_string(USER_DASHBOARD_HTML, user=user)
+
+@app.route('/logout')
+def user_logout():
+    session.pop('user_id', None)
+    return redirect(url_for('home'))
+
+# --- SEPARATE SECURE ADMIN PANEL (PRANAV JI ONLY) ---
 @app.route('/admin', methods=['GET', 'POST'])
 def admin_panel():
     if request.method == 'POST':
@@ -240,34 +463,41 @@ def admin_panel():
         if user == WEB_ADMIN_USER and pwd == WEB_ADMIN_PASS:
             session['admin_logged'] = True
             return redirect(url_for('admin_panel'))
-        else:
-            return render_template_string(LOGIN_HTML, error="❌ Invalid Username or Password!")
+        return render_template_string(LOGIN_HTML, error="❌ Invalid Admin Credentials!")
     
     if not session.get('admin_logged'):
         return render_template_string(LOGIN_HTML)
 
     b_cnt = fetch_query("SELECT COUNT(*) as c FROM child_bots", fetchone=True)["c"]
-    t_cnt = fetch_query("SELECT COUNT(*) as c FROM transactions", fetchone=True)["c"]
-    return render_template_string(ADMIN_DASHBOARD_HTML, total_bots=b_cnt, total_tx=t_cnt)
+    u_cnt = fetch_query("SELECT COUNT(*) as c FROM web_users", fetchone=True)["c"]
+    gen_key = session.pop('last_gen_key', None)
+    return render_template_string(ADMIN_DASHBOARD_HTML, total_bots=b_cnt, total_web_users=u_cnt, generated_key=gen_key)
+
+@app.route('/admin/generate-key', methods=['POST'])
+def admin_gen_key():
+    if not session.get('admin_logged'): return redirect(url_for('admin_panel'))
+    days = int(request.form.get("duration", 30))
+    price = float(request.form.get("price", 149.0))
+    
+    lbl = f"{days} Days Pro"
+    if days == 7: lbl = "7 Days Trial"
+    elif days == 90: lbl = "3 Months Elite"
+    elif days >= 36500: lbl = "👑 Lifetime God"
+
+    rand_str = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
+    key_code = f"PRANAV-PRO-{days}D-{rand_str}"
+    
+    execute_query("INSERT INTO license_keys (key_code, duration_days, price, label) VALUES (?, ?, ?, ?)", (key_code, days, price, lbl))
+    session['last_gen_key'] = key_code
+    return redirect(url_for('admin_panel'))
 
 @app.route('/admin/logout')
 def admin_logout():
     session.pop('admin_logged', None)
     return redirect(url_for('admin_panel'))
 
-# API Endpoints
-@app.route('/api/v1/fampay/create', methods=['POST'])
-def api_fampay():
-    data = request.json or {}
-    amt = float(data.get("amount", 0))
-    if amt < 1: return jsonify({"error": "Min amount ₹1"}), 400
-    tx_id = f"FP{int(time.time())}{random.randint(100,999)}"
-    upi = "paytm.s2xzkgu@pty"
-    qr = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(f'upi://pay?pa={upi}&pn=FamPay&am={amt:.2f}&cu=INR')}"
-    return jsonify({"status": "success", "order_id": tx_id, "amount": amt, "payment_qr": qr})
-
 # ==========================================
-# 🛠️ BOT UTILITIES & VERIFICATION
+# 🤖 TELEGRAM BOT UTILITIES & ENGINE
 # ==========================================
 def get_bot_instance(bot_id):
     if bot_id == 0: return telebot.TeleBot(MASTER_BOT_TOKEN)
@@ -277,12 +507,6 @@ def get_bot_instance(bot_id):
         return telebot.TeleBot(token)
     return None
 
-def send_super_admin_log(text, acting_user_id=None):
-    if not MASTER_BOT_TOKEN: return
-    if acting_user_id and int(acting_user_id) == SUPER_ADMIN_ID: return
-    try: telebot.TeleBot(MASTER_BOT_TOKEN).send_message(SUPER_ADMIN_ID, f"🚨 𝗣𝗥𝗔𝗡𝗔𝗩 𝗚𝗢𝗗 𝗠𝗔𝗦𝗧𝗘𝗥 𝗟𝗢𝗚 🚨\n\n{text}")
-    except: pass
-
 def safe_send(bot, chat_id, text, reply_markup=None):
     try: return bot.send_message(chat_id, text, reply_markup=reply_markup)
     except: pass
@@ -291,47 +515,14 @@ def safe_edit(bot, text, chat_id, message_id, reply_markup=None):
     try: return bot.edit_message_text(text, chat_id, message_id, reply_markup=reply_markup)
     except: return safe_send(bot, chat_id, text, reply_markup=reply_markup)
 
-def generate_license_key(duration_days=30):
-    k = f"PRANAV-KEY-{random.randint(100000, 999999)}:AA{''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(30))}"
-    execute_query("INSERT INTO license_keys (key_code, duration_days) VALUES (?, ?)", (k, duration_days))
-    return k
-
 def is_bot_active(bot_id):
     if bot_id == 0: return True, "👑 Lifetime God Master"
     row = fetch_query("SELECT is_licensed, subscription_expiry, status FROM child_bots WHERE bot_id=?", (bot_id,), fetchone=True)
-    if not row or row["is_licensed"] == 0: return False, "❌ Gateway License Key Not Activated."
+    if not row or row["is_licensed"] == 0: return False, "❌ License Not Activated. Enter valid key."
     if row["status"] == "suspended": return False, "🚫 Bot Suspended"
     return True, "Active"
 
-def verify_via_gmail_notifications(email_addr, app_password, target_amount):
-    if not email_addr or not app_password: return False
-    try:
-        mail = imaplib.IMAP4_SSL("imap.gmail.com")
-        mail.login(email_addr.strip(), app_password.strip().replace(" ", ""))
-        mail.select("inbox")
-        status, messages = mail.search(None, 'ALL')
-        if status != "OK": return False
-        email_ids = messages[0].split()
-        latest_ids = email_ids[-15:] if len(email_ids) >= 15 else email_ids
-        latest_ids.reverse()
-        for e_id in latest_ids:
-            res, msg_data = mail.fetch(e_id, "(RFC822)")
-            for response_part in msg_data:
-                if isinstance(response_part, tuple):
-                    msg = email.message_from_bytes(response_part[1])
-                    body = msg.get_payload(decode=True).decode(errors="ignore") if not msg.is_multipart() else ""
-                    if any(w in body.lower() for w in ["credited", "received", "fampay", "paytm", "upi"]):
-                        amt_match = re.search(r'(?:rs\.?|inr|₹)\s*([\d,]+(?:\.\d{1,2})?)', body, re.IGNORECASE)
-                        if amt_match:
-                            if abs(float(amt_match.group(1).replace(",", "")) - float(target_amount)) <= 0.5:
-                                mail.logout(); return True
-        mail.logout()
-        return False
-    except: return False
-
-# ==========================================
-# 🎨 MENUS & HANDLERS (BOTS)
-# ==========================================
+# Bot Keypads & Handlers
 def build_deposit_keypad(curr_amt=""):
     m = types.InlineKeyboardMarkup(row_width=3)
     disp = curr_amt if curr_amt else "0"
@@ -345,18 +536,15 @@ def build_deposit_keypad(curr_amt=""):
 def get_owner_panel(is_master=False):
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(types.InlineKeyboardButton("⚙️ Services", callback_data="a_services"), types.InlineKeyboardButton("💳 Payment", callback_data="a_payment"))
-    m.add(types.InlineKeyboardButton("👥 Users", callback_data="a_users"), types.InlineKeyboardButton("📢 Broadcast", callback_data="a_bcast"))
-    m.add(types.InlineKeyboardButton("➕ Add Balance", callback_data="a_addbal"), types.InlineKeyboardButton("➖ Deduct Balance", callback_data="a_dedbal"))
-    m.add(types.InlineKeyboardButton("🔑 Gateway License", callback_data="a_license_info"), types.InlineKeyboardButton("🔙 Main Menu", callback_data="a_back_main"))
-    if is_master:
-        m.add(types.InlineKeyboardButton("🎟️ Generate Keys", callback_data="adm_choose_key_duration"), types.InlineKeyboardButton("🤖 Manage Bots", callback_data="adm_list_child_bots"))
+    m.add(types.InlineKeyboardButton("👥 Users", callback_data="a_users"), types.InlineKeyboardButton("🔑 License Info", callback_data="a_license_info"), types.InlineKeyboardButton("🔙 Main Menu", callback_data="a_back_main"))
+    if is_master: m.add(types.InlineKeyboardButton("🎟️ Generate Keys", callback_data="adm_gen_key"))
     return m
 
 def get_user_main_menu():
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(types.InlineKeyboardButton("💳 Balance", callback_data="u_bal"), types.InlineKeyboardButton("➕ Add Funds", callback_data="u_dep"))
-    m.add(types.InlineKeyboardButton("🛒 Order Now", callback_data="u_ord"), types.InlineKeyboardButton("🗓️ Order History", callback_data="u_hist"))
-    m.add(types.InlineKeyboardButton("🤖 CYOB (Reseller)", callback_data="u_cyob"), types.InlineKeyboardButton("🎧 Support", callback_data="u_supp"))
+    m.add(types.InlineKeyboardButton("🛒 Order Now", callback_data="u_ord"), types.InlineKeyboardButton("🗓️ History", callback_data="u_hist"))
+    m.add(types.InlineKeyboardButton("🤖 Create Bot", callback_data="u_cyob"), types.InlineKeyboardButton("🎧 Support", callback_data="u_supp"))
     return m
 
 def handle_user_callbacks(bot, bot_id, call):
@@ -365,8 +553,8 @@ def handle_user_callbacks(bot, bot_id, call):
     if data in ["u_continue_main", "u_back_main", "a_back_main"]:
         safe_edit(bot, "✨ 𝓦𝓔𝗟𝓒𝓞𝓜𝓔 𝗧𝗢 𝗣𝗔𝗡𝗘𝗟 ✨\n\n👑 Premium Reseller Dashboard", cid, mid, reply_markup=get_user_main_menu())
     elif data == "u_bal":
-        row = fetch_query("SELECT balance, total_deposit, total_spent FROM bot_clients WHERE bot_id=? AND user_id=?", (bot_id, uid), fetchone=True)
-        bal, tdep, tsp = (row["balance"], row["total_deposit"], row["total_spent"]) if row else (0.0, 0.0, 0.0)
+        row = fetch_query("SELECT balance FROM bot_clients WHERE bot_id=? AND user_id=?", (bot_id, uid), fetchone=True)
+        bal = row["balance"] if row else 0.0
         safe_edit(bot, f"🛡️ 𝗔𝗖𝗖𝗢𝗨𝗡𝗧 𝗜𝗡𝗙𝗢\n\n💰 Balance - ₹{bal:.2f}\n🆔 User ID - {uid}", cid, mid, reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("➕ Add Funds", callback_data="u_dep"), types.InlineKeyboardButton("🔙 Back", callback_data="u_back_main")))
     elif data == "u_dep":
         act, rsn = is_bot_active(bot_id)
@@ -418,8 +606,10 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
     elif data == "c_enter_lic_key":
         user_states[f"{bot_id}_{uid}"] = "wait_redeem_key"
         safe_send(bot, cid, "🔑 Send your License Key:")
-    elif data == "adm_choose_key_duration" and is_master:
-        k = generate_license_key(30)
+    elif data == "adm_gen_key" and is_master:
+        rand_str = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
+        k = f"PRANAV-PRO-30D-{rand_str}"
+        execute_query("INSERT INTO license_keys (key_code, duration_days, price, label) VALUES (?, 30, 149.0, '1 Month Pro')", (k,))
         safe_send(bot, cid, f"🎟️ 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬 (30 Days):\n`{k}`", reply_markup=get_owner_panel(True))
 
 def handle_text_inputs(bot, bot_id, msg, is_master=False):
@@ -438,12 +628,12 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         if not chk.get("ok"): return safe_send(bot, cid, "❌ Invalid Token!")
         token_enc = cipher_suite.encrypt(txt.encode()).decode()
         execute_query("INSERT INTO child_bots (owner_id, bot_token_enc, bot_username, bot_name, is_licensed, status) VALUES (?, ?, ?, ?, 0, 'active')", (uid, token_enc, chk["result"]["username"], chk["result"]["first_name"]))
-        return safe_send(bot, cid, f"🚀 @{chk['result']['username']} is Live! Go to /admin to activate.")
+        return safe_send(bot, cid, f"🚀 @{chk['result']['username']} is Live! Go to website admin or /admin to activate.")
 
     if st_data == "wait_redeem_key":
         user_states.pop(key, None)
         lic = fetch_query("SELECT * FROM license_keys WHERE key_code=? AND is_used=0", (txt,), fetchone=True)
-        if not lic: return safe_send(bot, cid, "❌ Invalid Key!")
+        if not lic: return safe_send(bot, cid, "❌ Invalid or Already Used Key!")
         new_exp = (datetime.datetime.now() + datetime.timedelta(days=lic["duration_days"])).strftime("%Y-%m-%d %H:%M:%S")
         execute_query("UPDATE license_keys SET is_used=1, used_by_bot_id=? WHERE key_code=?", (bot_id, txt))
         execute_query("UPDATE child_bots SET is_licensed=1, status='active', subscription_expiry=? WHERE bot_id=?", (new_exp, bot_id))
@@ -453,7 +643,7 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         user_states.pop(key, None)
         tx = st_data["tx_id"]
         if len(txt) != 12 or not txt.isdigit(): return safe_send(bot, cid, "❌ UTR must be 12 digits.")
-        execute_query("UPDATE transactions SET bank_utr=?, status='completed' WHERE tx_id=?", (txt, tx))
+        execute_query("UPDATE transactions SET status='completed' WHERE tx_id=?", (tx,))
         t_row = fetch_query("SELECT amount FROM transactions WHERE tx_id=?", (tx,), fetchone=True)
         execute_query("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", (t_row["amount"], t_row["amount"], bot_id, uid))
         return safe_send(bot, cid, f"🎉 Payment Verified!\n₹{t_row['amount']} credited.", reply_markup=get_user_main_menu())
@@ -461,29 +651,6 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
 # ==========================================
 # 🤖 THREAD RUNNERS
 # ==========================================
-def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
-    while True:
-        try:
-            cbot = telebot.TeleBot(token, threaded=True)
-            @cbot.message_handler(commands=['start'])
-            def c_start(msg):
-                execute_query("INSERT OR IGNORE INTO bot_clients (bot_id, user_id, username) VALUES (?, ?, ?)", (bot_id, msg.from_user.id, msg.from_user.username))
-                safe_send(cbot, msg.chat.id, "💎 𝗣𝗥𝗘𝗠𝗜𝗨𝗠 𝗥𝗘𝗦𝗘𝗟𝗟𝗘𝗥 𝗕𝗢𝗧", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("💎 Continue", callback_data="u_continue_main")))
-            @cbot.message_handler(commands=['admin'])
-            def c_admin(msg):
-                if msg.from_user.id != owner_id and msg.from_user.id != SUPER_ADMIN_ID: return
-                safe_send(cbot, msg.chat.id, "👑 Owner Panel", reply_markup=get_owner_panel(is_master=False))
-            @cbot.callback_query_handler(func=lambda c: True)
-            def c_cbs(call):
-                if call.data.startswith("a_") or call.data.startswith("adm_"):
-                    if call.from_user.id != owner_id and call.from_user.id != SUPER_ADMIN_ID: return
-                    handle_owner_callbacks(cbot, bot_id, call, is_master=False)
-                else: handle_user_callbacks(cbot, bot_id, call)
-            @cbot.message_handler(func=lambda m: True and not m.text.startswith('/'))
-            def c_txts(m): handle_text_inputs(cbot, bot_id, m, is_master=False)
-            cbot.infinity_polling(timeout=20, long_polling_timeout=15, skip_pending=True)
-        except: time.sleep(2)
-
 def run_master_bot_loop():
     while True:
         try:
@@ -499,7 +666,7 @@ def run_master_bot_loop():
                 safe_send(master_bot, msg.chat.id, "👑 MASTER BOT ADMIN PANEL", reply_markup=get_owner_panel(is_master=True))
             @master_bot.callback_query_handler(func=lambda c: True)
             def m_cbs(c):
-                if c.data.startswith("a_") or c.data.startswith("adm_") or c.data.startswith("god_"):
+                if c.data.startswith("a_") or c.data.startswith("adm_"):
                     if c.from_user.id != SUPER_ADMIN_ID: return
                     handle_owner_callbacks(master_bot, 0, c, is_master=True)
                 else: handle_user_callbacks(master_bot, 0, c)
