@@ -76,7 +76,7 @@ def fetch_query(query, params=(), fetchone=False):
 
 def init_db():
     queries = [
-        """CREATE TABLE IF NOT EXISTS child_bots (bot_id INTEGER PRIMARY KEY, owner_id INTEGER, bot_token_enc TEXT UNIQUE, bot_username TEXT, bot_name TEXT, pro_mode INTEGER DEFAULT 1, log_channel TEXT DEFAULT '', force_channel TEXT DEFAULT '', support_wa TEXT DEFAULT '', support_tg TEXT DEFAULT '', active_gateway TEXT DEFAULT 'paytm', fampay_upi TEXT DEFAULT '', fampay_email TEXT DEFAULT '', fampay_app_pwd TEXT DEFAULT '', paytm_mid TEXT DEFAULT 'WWRYwl67445982860121', paytm_upi TEXT DEFAULT 'paytm.s2xzkgu@pty', subscription_expiry TIMESTAMP, is_licensed INTEGER DEFAULT 0, status TEXT DEFAULT 'active', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""",
+        """CREATE TABLE IF NOT EXISTS child_bots (bot_id INTEGER PRIMARY KEY, owner_id INTEGER, bot_token_enc TEXT UNIQUE, bot_username TEXT, bot_name TEXT, pro_mode INTEGER DEFAULT 1, log_channel TEXT DEFAULT '', force_channel TEXT DEFAULT '', support_wa TEXT DEFAULT '', support_tg TEXT DEFAULT '', active_gateway TEXT DEFAULT 'paytm', paytm_mid TEXT DEFAULT 'WWRYwl67445982860121', paytm_upi TEXT DEFAULT 'paytm.s2xzkgu@pty', bharatpe_mid TEXT DEFAULT '', bharatpe_upi TEXT DEFAULT '', bharatpe_token TEXT DEFAULT '', fampay_email TEXT DEFAULT '', fampay_app_pwd TEXT DEFAULT '', subscription_expiry TIMESTAMP, is_licensed INTEGER DEFAULT 0, status TEXT DEFAULT 'active', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""",
         """CREATE TABLE IF NOT EXISTS license_keys (key_code TEXT PRIMARY KEY, duration_days INTEGER DEFAULT 30, used_by_bot_id INTEGER DEFAULT NULL, used_by_user_id INTEGER DEFAULT NULL, is_used INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""",
         """CREATE TABLE IF NOT EXISTS key_pricing (duration_days INTEGER PRIMARY KEY, price REAL, label TEXT)""",
         """CREATE TABLE IF NOT EXISTS bot_clients (id INTEGER PRIMARY KEY AUTOINCREMENT, bot_id INTEGER, user_id INTEGER, username TEXT, balance REAL DEFAULT 0.0, total_deposit REAL DEFAULT 0.0, total_spent REAL DEFAULT 0.0, banned INTEGER DEFAULT 0, upi_pin TEXT DEFAULT '', failed_pin_attempts INTEGER DEFAULT 0, pin_locked_until TIMESTAMP DEFAULT NULL, UNIQUE(bot_id, user_id))""",
@@ -143,7 +143,7 @@ def generate_license_key(duration_days=30):
 def is_bot_active(bot_id):
     if bot_id == 0: return True, "👑 Lifetime God Master"
     row = fetch_query("SELECT is_licensed, subscription_expiry, status FROM child_bots WHERE bot_id=?", (bot_id,), fetchone=True)
-    if not row or row["is_licensed"] == 0: return False, "❌ Gateway License Key Not Activated. Enter valid key in /admin."
+    if not row or row["is_licensed"] == 0: return False, "❌ Gateway License Key Not Activated. Click 'Buy License Key' below to unlock!"
     if row["status"] == "suspended": return False, "🚫 Bot Suspended by God Master"
     if not row["subscription_expiry"]: return False, "❌ License Expired"
     try:
@@ -274,8 +274,6 @@ def execute_reseller_api_order(bot_id, uid, service_id, link, qty, cost, service
             return
 
         api_order_id = "MANUAL"
-        
-        # 1. TEST API FIRST BEFORE DEDUCTING
         if MAIN_PANEL_API_KEY and service_id:
             try:
                 r = requests.post(MAIN_PANEL_URL, data={"key": MAIN_PANEL_API_KEY, "action": "add", "service": service_id, "link": link, "quantity": qty}, timeout=10).json()
@@ -291,7 +289,6 @@ def execute_reseller_api_order(bot_id, uid, service_id, link, qty, cost, service
                 safe_send(bot, cid, "❌ System Error: Could not reach panel API right now. Balance NOT deducted.", reply_markup=get_user_main_menu())
                 return
 
-        # 2. IF SUCCESS, DEDUCT BALANCE
         execute_query("UPDATE bot_clients SET balance = balance - ?, total_spent = total_spent + ? WHERE bot_id=? AND user_id=?", (cost, cost, bot_id, uid))
         execute_query("INSERT INTO bot_orders (bot_id, user_id, service_name, link, quantity, charge, api_order_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (bot_id, uid, service_name, link, qty, cost, api_order_id, "Pending"))
 
@@ -322,7 +319,7 @@ def process_new_bot_token(source_bot, uid, cid, token_text, is_master=False):
     t = threading.Thread(target=run_child_bot_loop, args=(bot_id, uid, token_text, bot_user, bot_name), daemon=True)
     t.start(); bot_threads[token_text] = t
 
-    safe_edit(source_bot, f"🚀 𝗕𝗢𝗧 𝗜𝗦 𝗟𝗜𝗩𝗘!\n\n🤖 @{bot_user}\n\nYour bot is configured! Open it and send /admin.", cid, v_msg.message_id, reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("Open Bot", url=f"https://t.me/{bot_user}")))
+    safe_edit(source_bot, f"🚀 𝗕𝗢𝗧 𝗜𝗦 𝗟𝗜𝗩𝗘!\n\n🤖 @{bot_user}\n\n⚠️ 𝗡𝗢𝗧𝗘: Your bot is currently LOCKED.\nOpen your bot, go to /admin -> Gateway License, and buy/enter your License Key to unlock!", cid, v_msg.message_id, reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("Open Bot", url=f"https://t.me/{bot_user}")))
 
 # ==========================================
 # 🎮 CALLBACK HANDLERS
@@ -360,9 +357,8 @@ def handle_user_callbacks(bot, bot_id, call):
     elif data == "u_dep":
         act, rsn = is_bot_active(bot_id)
         if not act:
-            return safe_edit(bot, f"⚠️ 𝗚𝗔𝗧𝗘𝗪𝗔𝗬 𝗟𝗢𝗖𝗞𝗘𝗗\n\n{rsn}\nOwner must activate Gateway License Key.", cid, mid, reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Back", callback_data="u_back_main")))
+            return safe_edit(bot, f"⚠️ 𝗚𝗔𝗧𝗘𝗪𝗔𝗬 𝗟𝗢𝗖𝗞𝗘𝗗\n\n{rsn}\nOwner must activate Gateway License Key via /admin.", cid, mid, reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Back", callback_data="u_back_main")))
 
-        # ALWAYS USE MASTER ADMIN'S UPI SO MONEY GOES DIRECTLY TO PRANAV
         m_bot = fetch_query("SELECT active_gateway, paytm_upi, fampay_upi FROM child_bots WHERE bot_id=0", fetchone=True)
         gw = m_bot["active_gateway"] if m_bot and m_bot["active_gateway"] else "paytm"
         m = types.InlineKeyboardMarkup(row_width=1).add(types.InlineKeyboardButton(f"⚡ UPI QR ({gw.upper()})", callback_data="u_dep_method_upi"), types.InlineKeyboardButton("🔙 Back", callback_data="u_back_main"))
@@ -389,7 +385,6 @@ def handle_user_callbacks(bot, bot_id, call):
             keypad_amounts.pop(k_key, None)
 
             utr = f"DEP{int(time.time())}{random.randint(100, 999)}"
-            # FETCH MASTER'S UPI DIRECTLY SO MONEY COMES TO PRANAV
             m_bot = fetch_query("SELECT active_gateway, fampay_upi, paytm_upi FROM child_bots WHERE bot_id=0", fetchone=True)
             gw = m_bot["active_gateway"] if m_bot and m_bot["active_gateway"] else "paytm"
             target_upi = m_bot["paytm_upi"] if gw == "paytm" else m_bot["fampay_upi"]
@@ -586,8 +581,13 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         act, rsn = is_bot_active(bot_id)
         exp = fetch_query("SELECT subscription_expiry FROM child_bots WHERE bot_id=?", (bot_id if not is_master else 0,), fetchone=True)
         exp_dt = exp["subscription_expiry"] if exp and exp["subscription_expiry"] else "No Expiry / Not Set"
-        m = types.InlineKeyboardMarkup(row_width=1).add(types.InlineKeyboardButton("🛒 Buy Key", callback_data="c_buy_key_menu"), types.InlineKeyboardButton("🎟️ Enter Key", callback_data="c_enter_lic_key"), types.InlineKeyboardButton("🔙 Back", callback_data="adm_back_panel"))
-        safe_edit(bot, f"🔑 𝗚𝗔𝗧𝗘𝗪𝗔𝗬 𝗟𝗜𝗖𝗘𝗡𝗦𝗘\n\n• Status: {rsn}\n• Expiry: `{exp_dt}`", cid, mid, reply_markup=m)
+        # LOCKED BOT: Show prominent [🛒 Buy License Key] button right here!
+        m = types.InlineKeyboardMarkup(row_width=1).add(
+            types.InlineKeyboardButton("🛒 Buy License Key (Instant Auto)", callback_data="c_buy_key_menu"),
+            types.InlineKeyboardButton("🎟️ Enter License Key", callback_data="c_enter_lic_key"),
+            types.InlineKeyboardButton("🔙 Back", callback_data="adm_back_panel")
+        )
+        safe_edit(bot, f"🔑 𝗚𝗔𝗧𝗘𝗪𝗔𝗬 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗦𝗧𝗔𝗧𝗨𝗦\n\n• Status: {rsn}\n• Expiry: `{exp_dt}`\n\n⚠️ *Your bot payment gateway is locked! Click 'Buy License Key' below to unlock automatically.*", cid, mid, reply_markup=m)
 
     elif data == "c_enter_lic_key":
         user_states[f"{bot_id}_{uid}"] = "wait_redeem_key"
@@ -615,7 +615,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         m.add(types.InlineKeyboardButton("➕ Add 30 Days", callback_data=f"god_adddays_{t_id}_30"), types.InlineKeyboardButton("👑 Make Lifetime", callback_data=f"god_adddays_{t_id}_36500"))
         if b['status'] == 'active': m.add(types.InlineKeyboardButton("🚫 Suspend Bot", callback_data=f"god_suspend_{t_id}"))
         else: m.add(types.InlineKeyboardButton("🟢 Unsuspend Bot", callback_data=f"god_unsuspend_{t_id}"))
-        m.add(types.InlineKeyboardButton("⚙️ Override Gateway", callback_data=f"god_gw_{t_id}"), types.InlineKeyboardButton("🗑️ DELETE BOT", callback_data=f"god_del_{t_id}"))
+        m.add(types.InlineKeyboardButton("🗑️ DELETE BOT", callback_data=f"god_del_{t_id}"))
         m.add(types.InlineKeyboardButton("🔙 Back to Bot List", callback_data="adm_list_child_bots"))
         safe_edit(bot, txt, cid, mid, reply_markup=m)
 
@@ -645,12 +645,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         bot.answer_callback_query(call.id, "🗑️ BOT DELETED COMPLETELY!", show_alert=True)
         handle_owner_callbacks(bot, 0, types.CallbackQuery(call.id, call.from_user, call.message, call.chat_instance, "adm_list_child_bots"), True)
 
-    elif data.startswith("god_gw_") and is_master:
-        t_id = int(data.replace("god_gw_", ""))
-        user_states[f"{bot_id}_{uid}"] = {"step": "god_wait_gw", "target_bot": t_id}
-        safe_send(bot, cid, "👑 GOD MODE GATEWAY OVERRIDE:\nSend details separated by '|'\nFormat: Gateway(fampay/paytm) | UPI_ID | Email_or_MID | AppPassword\n\nExample: fampay | name@fam | a@gmail.com | 16digitpwd")
-
-    # --- ADMIN MANUAL UTR APPROVAL (NOW MADE INSTANT AUTO-VERIFY BACKUP) ---
+    # --- ADMIN MANUAL UTR APPROVAL ---
     elif data.startswith("adm_approve_tx_"):
         if uid != SUPER_ADMIN_ID: return
         tx = data.replace("adm_approve_tx_", "")
@@ -664,7 +659,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
             days = t_row["target_days"]
             key_code = generate_license_key(duration_days=days)
             execute_query("UPDATE license_keys SET used_by_bot_id=? WHERE key_code=?", (t_row["bot_id"], key_code))
-            if t_bot: safe_send(t_bot, t_row["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗣𝗣𝗥𝗢𝗩𝗘𝗗 𝗕𝗬 𝗔𝗗𝗠𝗜𝗡!\n\n🔑 Key: `{key_code}`\n\nEnter in /admin -> Gateway License to activate.")
+            if t_bot: safe_send(t_bot, t_row["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗣𝗣𝗥𝗢𝗩𝗘𝗗 𝗕𝗬 𝗔𝗗𝗠𝗜𝗡!\n\n🔑 License Key: `{key_code}`\n\nEnter this in your /admin -> Gateway License to unlock your bot!")
         else:
             execute_query("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", (t_row["amount"], t_row["amount"], t_row["bot_id"], t_row["user_id"]))
             if t_bot: safe_send(t_bot, t_row["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗣𝗣𝗥𝗢𝗩𝗘𝗗!\n₹{t_row['amount']} credited to your wallet.")
@@ -707,7 +702,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         safe_send(bot, cid, "How much rupees do you want to sell per 100?")
 
     elif data == "a_payment":
-        b_set = fetch_query("SELECT active_gateway, fampay_upi, fampay_email, paytm_mid FROM child_bots WHERE bot_id=?", (bot_id if not is_master else 0,), fetchone=True)
+        b_set = fetch_query("SELECT active_gateway, fampay_upi, fampay_email FROM child_bots WHERE bot_id=?", (bot_id if not is_master else 0,), fetchone=True)
         gw = b_set["active_gateway"] if b_set else "paytm"
         f_email = b_set["fampay_email"] if (b_set and b_set["fampay_email"]) else "Not Set"
         txt = f"💳 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗚𝗔𝗧𝗘𝗪𝗔𝗬\n🔥 Active: {gw.upper()}\n⚡ Gmail Auto: {f_email}"
@@ -763,15 +758,6 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         execute_query("UPDATE bot_clients SET upi_pin='', failed_pin_attempts=0, pin_locked_until=NULL WHERE user_id=?", (int(txt),))
         safe_send(bot, cid, f"✅ 6-Digit PIN reset for User `{txt}`!", reply_markup=get_owner_panel(is_master))
         return send_super_admin_log(f"🔓 𝗣𝗜𝗡 𝗥𝗘𝗦𝗘𝗧 𝗕𝗬 𝗔𝗗𝗠𝗜𝗡\n• Target User: `{txt}`")
-
-    if isinstance(st_data, dict) and st_data.get("step") == "god_wait_gw" and is_master:
-        user_states.pop(key, None)
-        p = [x.strip() for x in txt.split("|")]
-        if len(p) >= 3:
-            t_id = st_data["target_bot"]
-            execute_query("UPDATE child_bots SET active_gateway=?, fampay_upi=?, fampay_email=?, fampay_app_pwd=? WHERE bot_id=?", (p[0], p[1], p[2], p[3] if len(p)>3 else "", t_id))
-            safe_send(bot, cid, f"✅ God Mode: Gateway Overridden for Bot {t_id}", reply_markup=get_owner_panel(True))
-        return
 
     if isinstance(st_data, dict) and st_data.get("step") == "wait_new_key_price" and is_master:
         user_states.pop(key, None)
@@ -837,7 +823,7 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         user_states.pop(key, None)
         if not txt.isdigit() or int(txt) <= 0: return safe_send(bot, cid, "Please enter a valid number of days.")
         key_code = generate_license_key(int(txt))
-        return safe_send(bot, cid, f"🎟️ 𝗖𝗨𝗦𝗧𝗢𝗠 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬 𝗚𝗘𝗡𝗘𝗥𝗔𝗧𝗘𝗗\n\n🔑 Key: `{key_code}`\n\n⏱️ Validity: {txt} Days", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Back to Owner Panel", callback_data="adm_back_panel")))
+        return safe_send(bot, cid, f"🎟️ 𝗖𝗨𝗦𝗧𝗢𝗠 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬 𝗚𝗘𝗡𝗘𝗥𝗔𝗧𝗘𝗗\n\n🔑 Key: {key_code}\n\n⏱️ Validity: {txt} Days", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Back to Owner Panel", callback_data="adm_back_panel")))
 
     if st_data == "wait_redeem_key":
         user_states.pop(key, None)
@@ -893,7 +879,7 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
                 execute_query("UPDATE license_keys SET used_by_bot_id=? WHERE key_code=?", (t_row["bot_id"], key_code))
                 safe_send(bot, cid, f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗 𝗕𝗬 𝗚𝗠𝗔𝗜𝗟!\n\n🔑 Key: `{key_code}`\n\nEnter this in your /admin ➔ Gateway License Key to activate!")
             else:
-                execute_query("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", (t_row["amount"], t_row["amount"], t_row["bot_id"], t_row["user_id"]))
+                execute_query("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", (t_row["amount"], t_row["amount"], bot_id, uid))
                 safe_send(bot, cid, f"🎉 Payment Verified!\nUTR: {user_utr}\n₹{t_row['amount']} credited to your wallet.", reply_markup=get_user_main_menu())
         else:
             safe_send(bot, cid, "⏳ UTR submitted! Gmail auto-verification is either off or pending.\nSent to Admin for instant manual approval. Please wait...")
@@ -1033,7 +1019,7 @@ def run_master_bot_loop():
             master_bot.infinity_polling(timeout=20, long_polling_timeout=15, skip_pending=True)
         except Exception:
             master_is_running = False
-            time.sleep(2)
+            time.sleep(3)
 
 def autonomous_smm_payment_poller():
     time.sleep(5)
@@ -1090,7 +1076,7 @@ threading.Thread(target=run_master_bot_loop, daemon=True).start()
 threading.Thread(target=autonomous_smm_payment_poller, daemon=True).start()
 
 @app.route('/')
-def home(): return "Pranav Master Engine v9 Active", 200
+def home(): return "Pranav Master Engine v9.2 Active", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=RENDER_PORT, use_reloader=False)
