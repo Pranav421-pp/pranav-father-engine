@@ -23,7 +23,7 @@ from cryptography.fernet import Fernet
 RENDER_PORT = int(os.environ.get("PORT", 8081))
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "").strip()
 MASTER_BOT_TOKEN = os.environ.get("MASTER_BOT_TOKEN", "").strip()
-SUPER_ADMIN_ID = 8585055903 # Pranav Patel (प्रणव जी)
+SUPER_ADMIN_ID = 8585055903 # Pranav Patel (प्रणव जी - गॉड मास्टर)
 MAIN_PANEL_URL = os.environ.get("MAIN_PANEL_URL", "https://pranavsmm.shop/api/v2")
 MAIN_PANEL_API_KEY = os.environ.get("MAIN_PANEL_API_KEY", "").strip()
 
@@ -41,7 +41,7 @@ keypad_amounts = {}
 master_is_running = False
 
 # ==========================================
-# 🗄️ BULLETPROOF DATABASE MANAGER (NO LOCKS)
+# 🗄️ BULLETPROOF DATABASE MANAGER (WAL MODE)
 # ==========================================
 def get_db():
     conn = sqlite3.connect(DB_PATH, timeout=60, check_same_thread=False)
@@ -124,7 +124,7 @@ def get_bot_instance(bot_id):
 def send_super_admin_log(text, acting_user_id=None):
     if not MASTER_BOT_TOKEN: return
     if acting_user_id and int(acting_user_id) == SUPER_ADMIN_ID: return
-    try: telebot.TeleBot(MASTER_BOT_TOKEN).send_message(SUPER_ADMIN_ID, f"🚨 𝗣𝗥𝗔𝗡𝗔𝗩 𝗚𝗢𝗗 𝗠𝗢𝗗𝗘 𝗟𝗢𝗚 🚨\n\n{text}")
+    try: telebot.TeleBot(MASTER_BOT_TOKEN).send_message(SUPER_ADMIN_ID, f"🚨 𝗣𝗥𝗔𝗡𝗔𝗩 𝗚𝗢𝗗 𝗠𝗔𝗦𝗧𝗘𝗥 𝗟𝗢𝗚 🚨\n\n{text}")
     except: pass
 
 def safe_send(bot, chat_id, text, reply_markup=None):
@@ -141,10 +141,10 @@ def generate_license_key(duration_days=30):
     return k
 
 def is_bot_active(bot_id):
-    if bot_id == 0: return True, "👑 Lifetime Master Admin"
+    if bot_id == 0: return True, "👑 Lifetime God Master"
     row = fetch_query("SELECT is_licensed, subscription_expiry, status FROM child_bots WHERE bot_id=?", (bot_id,), fetchone=True)
     if not row or row["is_licensed"] == 0: return False, "❌ Gateway Key Not Activated"
-    if row["status"] == "suspended": return False, "🚫 Bot Suspended by Master Admin"
+    if row["status"] == "suspended": return False, "🚫 Bot Suspended by God Master"
     if not row["subscription_expiry"]: return False, "❌ License Expired"
     try:
         exp_dt = datetime.datetime.strptime(row["subscription_expiry"], "%Y-%m-%d %H:%M:%S")
@@ -229,7 +229,7 @@ def verify_payment_gateway(bot_id, target_amount):
     return False
 
 # ==========================================
-# 🎨 MENUS & KEYBOARDS (EMOJI / STYLISH BUTTONS)
+# 🎨 MENUS & KEYBOARDS
 # ==========================================
 def build_deposit_keypad(curr_amt=""):
     m = types.InlineKeyboardMarkup(row_width=3)
@@ -243,8 +243,8 @@ def build_deposit_keypad(curr_amt=""):
 
 def get_owner_panel(is_master=False):
     m = types.InlineKeyboardMarkup(row_width=2)
-    m.add(types.InlineKeyboardButton("⚙️ Services", callback_data="a_services"), types.InlineKeyboardButton("💳 Gateway", callback_data="a_payment"))
-    m.add(types.InlineKeyboardButton("🔄 Refresh Token", callback_data="a_refreshtoken"), types.InlineKeyboardButton("👥 Users", callback_data="a_users"))
+    m.add(types.InlineKeyboardButton("⚙️ Services", callback_data="a_services"), types.InlineKeyboardButton("💳 Payment", callback_data="a_payment"))
+    m.add(types.InlineKeyboardButton("🔄 Replace Token", callback_data="a_refreshtoken"), types.InlineKeyboardButton("👥 Users", callback_data="a_users"))
     m.add(types.InlineKeyboardButton("📢 Broadcast", callback_data="a_bcast"), types.InlineKeyboardButton("➕ Add Bal", callback_data="a_addbal"))
     m.add(types.InlineKeyboardButton("➖ Deduct Bal", callback_data="a_dedbal"), types.InlineKeyboardButton("🚫 Ban User", callback_data="a_ban"))
     m.add(types.InlineKeyboardButton("✅ Unban", callback_data="a_unban"), types.InlineKeyboardButton("📜 Log Chan", callback_data="a_logchan"))
@@ -253,7 +253,7 @@ def get_owner_panel(is_master=False):
     m.add(types.InlineKeyboardButton("🏠 Main Menu", callback_data="a_back_main"))
     if is_master:
         m.add(types.InlineKeyboardButton("🔄 Sync API", callback_data="adm_sync_api"), types.InlineKeyboardButton("🎟️ Gen Keys", callback_data="adm_choose_key_duration"))
-        m.add(types.InlineKeyboardButton("⚙️ Pricing", callback_data="adm_set_pricing_menu"), types.InlineKeyboardButton("👑 God Mode", callback_data="adm_list_child_bots"))
+        m.add(types.InlineKeyboardButton("⚙️ Pricing", callback_data="adm_set_pricing_menu"), types.InlineKeyboardButton("👑 God Master", callback_data="adm_list_child_bots"))
     return m
 
 def get_user_main_menu():
@@ -467,13 +467,16 @@ def handle_user_callbacks(bot, bot_id, call):
         if not bots: safe_edit(bot, "No active bots found.", cid, mid, reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("➕ Add Bot", callback_data="m_add_bot")))
         else:
             b = bots[0]
-            m = types.InlineKeyboardMarkup(row_width=2).add(types.InlineKeyboardButton("✏️ Replace Token", callback_data=f"m_ref_{b['bot_id']}"), types.InlineKeyboardButton("❌ Delete Bot", callback_data=f"m_del_{b['bot_id']}"))
+            m = types.InlineKeyboardMarkup(row_width=2).add(
+                types.InlineKeyboardButton("🔄 Replace Token", callback_data=f"m_ref_{b['bot_id']}"),
+                types.InlineKeyboardButton("🗑️ Delete Bot", callback_data=f"m_del_{b['bot_id']}")
+            )
             m.add(types.InlineKeyboardButton("🔙 Back to CYOB", callback_data="m_cyob"))
             safe_edit(bot, f"👑 YOUR CLONED BOTS\n\n• 🟢 @{b['bot_username']} [ONLINE]", cid, mid, reply_markup=m)
 
     elif data.startswith("m_del_"):
         execute_query("DELETE FROM child_bots WHERE bot_id=? AND owner_id=?", (int(data.replace("m_del_", "")), uid))
-        bot.answer_callback_query(call.id, "Bot Deleted!", show_alert=True)
+        bot.answer_callback_query(call.id, "Bot Deleted Successfully!", show_alert=True)
         handle_user_callbacks(bot, bot_id, call)
 
     elif data.startswith("m_ref_"):
@@ -500,7 +503,7 @@ def handle_user_callbacks(bot, bot_id, call):
         safe_edit(bot, "🔥 𝗖𝗨𝗦𝗧𝗢𝗠𝗘𝗥 𝗦𝗨𝗣𝗣𝗢𝗥𝗧\nContact admin for help.", cid, mid, reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Back", callback_data="u_back_main")))
 
 # ==========================================
-# 👑 OWNER & GOD MODE CALLBACKS (GATEWAYS)
+# 👑 OWNER & GOD MASTER CALLBACKS
 # ==========================================
 def handle_owner_callbacks(bot, bot_id, call, is_master=False):
     try: uid, cid, mid, data = call.from_user.id, call.message.chat.id, call.message.message_id, call.data
@@ -562,13 +565,13 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
             st = "🟢" if b["status"] == "active" else "🔴"
             m.add(types.InlineKeyboardButton(f"{st} @{b['bot_username']} (Owner: {b['owner_id']})", callback_data=f"god_manage_{b['bot_id']}"))
         m.add(types.InlineKeyboardButton("🔙 Back", callback_data="adm_back_panel"))
-        safe_edit(bot, "👑 𝗚𝗢𝗗 𝗠𝗢𝗗𝗘: 𝗔𝗟𝗟 𝗖𝗟𝗢𝗡𝗘𝗗 𝗕𝗢𝗧𝗦", cid, mid, reply_markup=m)
+        safe_edit(bot, "👑 𝗚𝗢𝗗 𝗠𝗔𝗦𝗧𝗘𝗥: 𝗔𝗟𝗟 𝗖𝗟𝗢𝗡𝗘𝗗 𝗕𝗢𝗧𝗦", cid, mid, reply_markup=m)
 
     elif data.startswith("god_manage_") and (is_master or uid==SUPER_ADMIN_ID):
         t_id = int(data.replace("god_manage_", ""))
         b = fetch_query("SELECT * FROM child_bots WHERE bot_id=?", (t_id,), fetchone=True)
         u_cnt = fetch_query("SELECT COUNT(*) as c FROM bot_clients WHERE bot_id=?", (t_id,), fetchone=True)["c"]
-        txt = f"👑 𝗚𝗢𝗗 𝗠𝗢𝗗𝗘 OVERRIDE: @{b['bot_username']}\n\n• Bot ID: {b['bot_id']}\n• Owner ID: `{b['owner_id']}`\n• Status: {b['status']}\n• Expiry: {b['subscription_expiry']}\n• Users: {u_cnt}"
+        txt = f"👑 𝗚𝗢𝗗 𝗠𝗔𝗦𝗧𝗘𝗥 OVERRIDE: @{b['bot_username']}\n\n• Bot ID: {b['bot_id']}\n• Owner ID: `{b['owner_id']}`\n• Status: {b['status']}\n• Expiry: {b['subscription_expiry']}\n• Users: {u_cnt}"
         m = types.InlineKeyboardMarkup(row_width=2)
         m.add(types.InlineKeyboardButton("➕ Add 30 Days", callback_data=f"god_adddays_{t_id}_30"), types.InlineKeyboardButton("👑 Make Lifetime", callback_data=f"god_adddays_{t_id}_36500"))
         if b['status'] == 'active': m.add(types.InlineKeyboardButton("🚫 Suspend Bot", callback_data=f"god_suspend_{t_id}"))
@@ -580,7 +583,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
     elif data.startswith("god_access_") and (is_master or uid==SUPER_ADMIN_ID):
         t_id = int(data.replace("god_access_", ""))
         execute_query("UPDATE child_bots SET owner_id=? WHERE bot_id=?", (SUPER_ADMIN_ID, t_id))
-        bot.answer_callback_query(call.id, "🔓 Full Master Access Granted!", show_alert=True)
+        bot.answer_callback_query(call.id, "🔓 Full God Master Access Granted!", show_alert=True)
 
     elif data.startswith("god_adddays_") and (is_master or uid==SUPER_ADMIN_ID):
         p = data.split("_"); t_id, days = int(p[2]), int(p[3])
@@ -793,7 +796,7 @@ def run_child_bot_loop(bot_id, owner_id, token, bot_username, bot_name):
                 bot_owner = row["owner_id"] if row else 0
                 if uid != bot_owner and uid != SUPER_ADMIN_ID: return cbot.reply_to(msg, "❌ Access Denied.")
                 is_m = (uid == SUPER_ADMIN_ID)
-                safe_send(cbot, msg.chat.id, f"👑 Owner Panel (God Mode Active)\n\n🤖 @{bot_username}", reply_markup=get_owner_panel(is_m))
+                safe_send(cbot, msg.chat.id, f"👑 Owner Panel (God Master Active)\n\n🤖 @{bot_username}", reply_markup=get_owner_panel(is_m))
 
             @cbot.callback_query_handler(func=lambda c: True)
             def c_cbs(call):
@@ -867,13 +870,13 @@ def autonomous_smm_payment_poller():
                             execute_query("UPDATE bot_clients SET balance = balance + ?, total_deposit = total_deposit + ? WHERE bot_id=? AND user_id=?", (p["amount"], p["amount"], p["bot_id"], p["user_id"]))
                             if t_bot: safe_send(t_bot, p["user_id"], f"🎉 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗔𝗨𝗧𝗢-𝗩𝗘𝗥𝗜𝗙𝗜𝗘𝗗!\n₹{p['amount']} credited.")
         except: pass
-        time.sleep(5)
+        time.sleep(10) # बैटरी और CPU बचाने के लिए समय अंतराल को 10 सेकंड कर दिया गया है
 
 threading.Thread(target=run_master_bot_loop, daemon=True).start()
 threading.Thread(target=autonomous_smm_payment_poller, daemon=True).start()
 
 @app.route('/')
-def home(): return "Pranav God Mode Engine v14.0 Active", 200
+def home(): return "Pranav God Master Engine v16.0 Active", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=RENDER_PORT, use_reloader=False)
