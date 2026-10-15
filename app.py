@@ -114,8 +114,7 @@ init_db()
 # 🛠️ CORE UTILITIES & ROUTING
 # ==========================================
 def get_bot_instance(bot_id):
-    if bot_id == 0:
-        return telebot.TeleBot(MASTER_BOT_TOKEN)
+    if bot_id == 0: return telebot.TeleBot(MASTER_BOT_TOKEN)
     c_row = fetch_query("SELECT bot_token_enc FROM child_bots WHERE bot_id=?", (bot_id,), fetchone=True)
     if c_row:
         token = cipher_suite.decrypt(c_row["bot_token_enc"].encode()).decode()
@@ -474,17 +473,14 @@ def handle_user_callbacks(bot, bot_id, call):
         safe_edit(bot, "🔥 𝗖𝗨𝗦𝗧𝗢𝗠𝗘𝗥 𝗦𝗨𝗣𝗣𝗢𝗥𝗧\nContact admin for help.", cid, mid, reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("🔙 Back", callback_data="u_back_main")))
 
 # ==========================================
-# 👑 OWNER & GOD MODE CALLBACKS (WITH FULL ACCESS)
+# 👑 OWNER & GOD MODE CALLBACKS (STEP-BY-STEP GATEWAY SETUP)
 # ==========================================
 def handle_owner_callbacks(bot, bot_id, call, is_master=False):
     try: uid, cid, mid, data = call.from_user.id, call.message.chat.id, call.message.message_id, call.data
     except: return
 
-    # 👑 GOD MODE OVERRIDE: If Pranav Ji (SUPER_ADMIN_ID) is accessing ANY child bot, grant instant access!
-    if uid == SUPER_ADMIN_ID:
-        is_master = True # Pranav Ji has master access across all child bots!
-    elif is_master and uid != SUPER_ADMIN_ID:
-        return bot.answer_callback_query(call.id, "Access Denied", show_alert=True)
+    if uid == SUPER_ADMIN_ID: is_master = True
+    elif is_master and uid != SUPER_ADMIN_ID: return bot.answer_callback_query(call.id, "Access Denied", show_alert=True)
 
     if data == "adm_back_panel":
         safe_edit(bot, "👑 Owner Panel", cid, mid, reply_markup=get_owner_panel(is_master or (uid==SUPER_ADMIN_ID)))
@@ -496,7 +492,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
 
     elif data == "a_refreshtoken":
         user_states[f"{bot_id}_{uid}"] = "wait_refresh_bot_token"
-        safe_send(bot, cid, "🔄 𝗥𝗘𝗙𝗥𝗘𝗦𝗛 𝗕𝗢𝗧 𝗧𝗢𝗞𝗘𝗡\n\nPaste your new BotFather token:")
+        safe_send(bot, cid, "🔄 𝗥𝗘𝗙𝗥𝗘𝗦𝗛 𝗕𝗢𝗧 𝗧𝗢𝗞𝗘𝗡\n\nPaste your new BotFather token here:")
 
     elif data == "adm_reset_user_pin":
         user_states[f"{bot_id}_{uid}"] = "wait_reset_pin_target"
@@ -556,9 +552,8 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
 
     elif data.startswith("god_access_") and (is_master or uid==SUPER_ADMIN_ID):
         t_id = int(data.replace("god_access_", ""))
-        # Pranav Ji gets full admin access session for this child bot!
         execute_query("UPDATE child_bots SET owner_id=? WHERE bot_id=?", (SUPER_ADMIN_ID, t_id))
-        bot.answer_callback_query(call.id, "🔓 Full Master Access Granted! You are now co-owner/admin of this bot.", show_alert=True)
+        bot.answer_callback_query(call.id, "🔓 Full Master Access Granted!", show_alert=True)
 
     elif data.startswith("god_adddays_") and (is_master or uid==SUPER_ADMIN_ID):
         p = data.split("_"); t_id, days = int(p[2]), int(p[3])
@@ -602,7 +597,7 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         safe_edit(bot, "⚙️ SERVICES", cid, mid, reply_markup=m)
 
     elif data == "a_payment":
-        b_set = fetch_query("SELECT active_gateway, paytm_mid, bharatpe_mid FROM child_bots WHERE bot_id=?", (bot_id if not (is_master or uid==SUPER_ADMIN_ID) else 0,), fetchone=True)
+        b_set = fetch_query("SELECT active_gateway, paytm_mid, paytm_upi, bharatpe_mid FROM child_bots WHERE bot_id=?", (bot_id if not (is_master or uid==SUPER_ADMIN_ID) else 0,), fetchone=True)
         gw = b_set["active_gateway"] if b_set else "paytm"
         txt = f"💳 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗚𝗔𝗧𝗘𝗪𝗔𝗬\nActive: {gw.upper()}"
         m = types.InlineKeyboardMarkup(row_width=2).add(
@@ -612,16 +607,17 @@ def handle_owner_callbacks(bot, bot_id, call, is_master=False):
         )
         safe_edit(bot, txt, cid, mid, reply_markup=m)
 
+    # --- 🛠️ STEP-BY-STEP GATEWAY SETUP (जैसे आपने स्क्रीनशॉट में माँगा है) ---
     elif data == "adm_set_paytm":
-        user_states[f"{bot_id}_{uid}"] = "wait_paytm_details"
-        safe_send(bot, cid, "Send Paytm MID | UPI ID:")
+        user_states[f"{bot_id}_{uid}"] = "wait_paytm_mid"
+        safe_send(bot, cid, "⚡ 𝗦𝘁𝗲𝗽 𝟭/𝟮: Send your Paytm Merchant MID:")
 
     elif data == "adm_set_bharatpe":
-        user_states[f"{bot_id}_{uid}"] = "wait_bharatpe_details"
-        safe_send(bot, cid, "Send BharatPe MID | Token:")
+        user_states[f"{bot_id}_{uid}"] = "wait_bharatpe_mid"
+        safe_send(bot, cid, "⚡ 𝗦𝘁𝗲𝗽 𝟭/𝟮: Send your BharatPe Merchant MID:")
 
 # ==========================================
-# 📝 TEXT INPUT HANDLERS
+# 📝 TEXT INPUT HANDLERS (STEP-BY-STEP CONVERSATION)
 # ==========================================
 def handle_text_inputs(bot, bot_id, msg, is_master=False):
     try: uid, cid, txt = msg.from_user.id, msg.chat.id, msg.text.strip().replace('`', '').replace("'", "")
@@ -653,27 +649,33 @@ def handle_text_inputs(bot, bot_id, msg, is_master=False):
         except Exception as e: safe_send(bot, cid, f"Error: {e}")
         return
 
-    if st_data == "wait_paytm_details":
-        user_states.pop(key, None)
-        p = [x.strip() for x in txt.split("|")]
-        if len(p) >= 2:
-            execute_query("UPDATE child_bots SET paytm_mid=?, paytm_upi=?, active_gateway='paytm' WHERE bot_id=?", (p[0], p[1], bot_id if not is_master else 0))
-            safe_send(bot, cid, "✅ Paytm Configured!", reply_markup=get_owner_panel(is_master or uid==SUPER_ADMIN_ID))
-        return
+    # --- 🛠️ STEP-BY-STEP PAYTM SETUP (MID -> UPI) ---
+    if st_data == "wait_paytm_mid":
+        user_states[key] = {"step": "wait_paytm_upi", "mid": txt}
+        return safe_send(bot, cid, f"✅ MID Saved: `{txt}`\n\n⚡ 𝗦𝘁𝗲𝗽 𝟮/𝟮: Send your Paytm UPI ID (e.g. `paytm.xxxxx@pty`):")
 
-    if st_data == "wait_bharatpe_details":
+    if isinstance(st_data, dict) and st_data.get("step") == "wait_paytm_upi":
         user_states.pop(key, None)
-        p = [x.strip() for x in txt.split("|")]
-        if len(p) >= 2:
-            execute_query("UPDATE child_bots SET bharatpe_mid=?, bharatpe_token=?, active_gateway='bharatpe' WHERE bot_id=?", (p[0], p[1], bot_id if not is_master else 0))
-            safe_send(bot, cid, "✅ BharatPe Configured!", reply_markup=get_owner_panel(is_master or uid==SUPER_ADMIN_ID))
-        return
+        mid_val = st_data["mid"]
+        execute_query("UPDATE child_bots SET paytm_mid=?, paytm_upi=?, active_gateway='paytm' WHERE bot_id=?", (mid_val, txt, bot_id if not is_master else 0))
+        return safe_send(bot, cid, f"🎉 Paytm Merchant Configured Successfully!\n• MID: `{mid_val}`\n• UPI: `{txt}`", reply_markup=get_owner_panel(is_master or uid==SUPER_ADMIN_ID))
+
+    # --- 🛠️ STEP-BY-STEP BHARATPE SETUP (MID -> TOKEN) ---
+    if st_data == "wait_bharatpe_mid":
+        user_states[key] = {"step": "wait_bharatpe_token", "mid": txt}
+        return safe_send(bot, cid, f"✅ MID Saved: `{txt}`\n\n⚡ 𝗦𝘁𝗲𝗽 𝟮/𝟮: Send your BharatPe Merchant Token:")
+
+    if isinstance(st_data, dict) and st_data.get("step") == "wait_bharatpe_token":
+        user_states.pop(key, None)
+        mid_val = st_data["mid"]
+        execute_query("UPDATE child_bots SET bharatpe_mid=?, bharatpe_token=?, active_gateway='bharatpe' WHERE bot_id=?", (mid_val, txt, bot_id if not is_master else 0))
+        return safe_send(bot, cid, f"🎉 BharatPe Merchant Configured Successfully!\n• MID: `{mid_val}`", reply_markup=get_owner_panel(is_master or uid==SUPER_ADMIN_ID))
 
     if st_data == "wait_redeem_key":
         user_states.pop(key, None)
         lic = fetch_query("SELECT * FROM license_keys WHERE key_code=?", (txt,), fetchone=True)
         if not lic: return safe_send(bot, cid, "❌ Invalid Key!")
-        if lic["is_used"] == 1: return safe_send(bot, cid, "🚫 Security Alert: Key already used!")
+        if lic["is_used"] == 1: return safe_send(bot, cid, "🚫 Security Alert: Key already used by another user!")
         days = lic["duration_days"]
         new_exp = (datetime.datetime.now() + datetime.timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
         execute_query("UPDATE license_keys SET is_used=1, used_by_bot_id=?, used_by_user_id=? WHERE key_code=?", (bot_id, uid, txt))
@@ -811,7 +813,7 @@ threading.Thread(target=run_master_bot_loop, daemon=True).start()
 threading.Thread(target=autonomous_smm_payment_poller, daemon=True).start()
 
 @app.route('/')
-def home(): return "Pranav God Mode Engine v10.0 Active", 200
+def home(): return "Pranav God Mode Engine v11.0 Active", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=RENDER_PORT, use_reloader=False)
