@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pranav.live - Login</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .card-10d { background: #ffffff; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1); border: 1px solid #e2e8f0; border-radius: 1.5rem; }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+    <div class="card-10d w-full max-w-md p-8">
+        <div class="text-center mb-6">
+            <h1 class="text-3xl font-black text-slate-800">Pranav<span class="text-indigo-600">.live</span> 🚀</h1>
+            <p class="text-slate-500 text-sm mt-1">सुरक्षित और तेज लाइव चैट ऐप</p>
+        </div>
+
+        <!-- Login / Signup Tabs -->
+        <div class="space-y-4">
+            <form action="/login" method="POST" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 uppercase">Username</label>
+                    <input type="text" name="username" required placeholder="अपना यूजरनेम डालें" class="w-full mt-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 uppercase">6-Digit PIN (पासवर्ड)</label>
+                    <input type="password" name="pin" maxlength="6" required placeholder="••••••" class="w-full mt-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-center tracking-widest text-lg">
+                </div>
+                <button type="submit" class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg transition duration-200">Login / साइन इन</button>
+            </form>
+
+            <hr class="my-4 border-slate-100">
+
+            <form action="/signup" method="POST" class="space-y-4">
+                <p class="text-xs font-bold text-slate-400 text-center uppercase">नया अकाउंट बनाएं</p>
+                <input type="text" name="username" required placeholder="नया Username चुनें" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none">
+                <input type="password" name="pin" maxlength="6" required placeholder="6-Digit PIN सेट करें" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-center tracking-widest text-lg">
+                <button type="submit" class="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg transition duration-200">Register / साइन अप</button>
+            </form>
+        </div>
+
+        <!-- Telegram Support Footer -->
+        <div class="mt-8 text-center">
+            <a href="https://t.me/PranavSMM" target="_blank" class="inline-flex items-center text-xs font-bold text-sky-600 bg-sky-50 px-4 py-2 rounded-full hover:bg-sky-100 transition">
+                💬 Telegram Support: @PranavSMM
+            </a>
+        </div>
+    </div>
+</body>
+</html>
