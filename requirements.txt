@@ -1,5 +1,6 @@
-pyTelegramBotAPI
-Flask
-requests
-cryptography
-gunicorn
+git init
+git add app.py
+git commit -m "Pranav Ji Master SMM Bot v11"
+git branch -M main
+git remote add origin https://github.com/tera-username/pranav-smm-bot.git
+git push -u origin main
